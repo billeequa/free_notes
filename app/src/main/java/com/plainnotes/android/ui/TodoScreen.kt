@@ -65,6 +65,7 @@ fun TodoScreen(
     var menuId by remember { mutableStateOf<String?>(null) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var creating by rememberSaveable { mutableStateOf(false) }
+    var newTaskId by rememberSaveable { mutableStateOf(java.util.UUID.randomUUID().toString()) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { viewModel.loadTodos() }
     LaunchedEffect(state.todosLoaded) {
@@ -104,7 +105,7 @@ fun TodoScreen(
         },
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            if (state.todosLoaded) FloatingActionButton(onClick = { creating = true }) {
+            if (state.todosLoaded) FloatingActionButton(onClick = { newTaskId = java.util.UUID.randomUUID().toString(); creating = true }) {
                 Icon(Icons.Rounded.Add, "Add to-do")
             }
         },
@@ -189,13 +190,14 @@ fun TodoScreen(
         }
     }
     if (creating || editingId != null) {
-        val original = items.find { it.id == editingId }
+        val original = allItems.find { it.id == editingId }
         TodoEditDialog(original, onDismiss = { creating = false; editingId = null }) { title, description, addAnother ->
-            val item = original?.copy(title = title, description = description) ?: TodoItem(title = title, description = description)
+            val item = original?.copy(title = title, description = description) ?: TodoItem(id = newTaskId, title = title, description = description)
             val saved = viewModel.changeTodos { todos ->
-                if (original == null) todos + item else todos.map { if (it.id == item.id) it.copy(title = title, description = description) else it }
+                if (todos.none { it.id == item.id }) todos + item else todos.map { if (it.id == item.id) it.copy(title = title, description = description) else it }
             }
             if (saved) {
+                if (addAnother) newTaskId = java.util.UUID.randomUUID().toString()
                 creating = addAnother
                 editingId = null
                 if (original == null) {
@@ -233,7 +235,7 @@ private fun TodoEditDialog(
     var error by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val titleFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { titleFocus.requestFocus() }
+    var focusRequest by remember { mutableStateOf(0) }
     fun requestDismiss() {
         if (saving) return
         if (title != original?.title.orEmpty() || description != original?.description.orEmpty()) discardConfirmation = true
@@ -249,7 +251,7 @@ private fun TodoEditDialog(
                     title = ""
                     description = ""
                     detailsExpanded = false
-                    titleFocus.requestFocus()
+                    focusRequest += 1
                 }
             } finally { saving = false }
         }
@@ -259,6 +261,10 @@ private fun TodoEditDialog(
         title = { Text(if (original == null) "Add to-do" else "Edit to-do") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LaunchedEffect(focusRequest) {
+                    withFrameNanos { }
+                    titleFocus.requestFocus()
+                }
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true, enabled = !saving,
                     modifier = Modifier.focusRequester(titleFocus),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),

@@ -947,7 +947,7 @@ private fun NoteEditorScreen(
                                 else -> "Saved"
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (session.saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (session.saveFailed && session.isDirty) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.clickable(enabled = session.isDirty && !isSaving) {
                                 scope.launch { saveIfNeeded() }
                             },
