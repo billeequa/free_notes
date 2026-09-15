@@ -26,6 +26,9 @@ import android.widget.TextView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.getValue
+import android.view.inputmethod.EditorInfo
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
@@ -89,6 +92,8 @@ fun NoteBodyEditor(
     fontScale: Float,
     modifier: Modifier = Modifier,
 ) {
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnUrlTapped by rememberUpdatedState(onUrlTapped)
     val textColor = MaterialTheme.colorScheme.onBackground.toArgb()
     val hintColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
@@ -103,13 +108,14 @@ fun NoteBodyEditor(
                     linkColor = linkColor,
                     fontScale = fontScale,
                 )
-                configureKeyboardAwarePadding()
                 onSelectionChangedCallback = onSelectionChanged
                 onScrollChangedCallback = onScrollChanged
                 isFocusable = true
                 isFocusableInTouchMode = true
                 isCursorVisible = true
                 showSoftInputOnFocus = true
+                imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                post { scrollTo(0, initialScrollY) }
                 inputType = InputType.TYPE_CLASS_TEXT or
                     InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                     InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
@@ -131,7 +137,7 @@ fun NoteBodyEditor(
                             }
 
                             val selectedUrl = findSelectedUrl(this@apply) ?: return false
-                            onUrlTapped(selectedUrl)
+                            currentOnUrlTapped(selectedUrl)
                             mode.finish()
                             return true
                         }
@@ -146,7 +152,7 @@ fun NoteBodyEditor(
                         override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
                             val tappedUrl = findUrlAtOffset(this@apply, event)
                             if (!focusedBeforeDown && tappedUrl != null) {
-                                onUrlTapped(tappedUrl)
+                                currentOnUrlTapped(tappedUrl)
                             }
                             return false
                         }
@@ -191,7 +197,7 @@ fun NoteBodyEditor(
                                 return
                             }
 
-                            onValueChange(editable.toString())
+                            currentOnValueChange(editable.toString())
                             removeCallbacks(applyLinksRunnable)
                             post {
                                 bringSelectionIntoView(this@apply)
@@ -217,7 +223,6 @@ fun NoteBodyEditor(
                 linkColor = linkColor,
                 fontScale = fontScale,
             )
-            editText.configureKeyboardAwarePadding()
             editText.onSelectionChangedCallback = onSelectionChanged
             editText.onScrollChangedCallback = onScrollChanged
             syncLinkifiedText(editText, value)
@@ -225,11 +230,11 @@ fun NoteBodyEditor(
                 val targetSelection = requestedSelection
                     ?.coerceIn(0, editText.text?.length ?: 0)
                     ?: (editText.text?.length ?: 0)
-                editText.requestFocus()
-                editText.setSelection(targetSelection)
-                editText.context.getSystemService(InputMethodManager::class.java)
-                    ?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
                 editText.post {
+                    editText.requestFocus()
+                    editText.setSelection(targetSelection)
+                    editText.context.getSystemService(InputMethodManager::class.java)
+                        ?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
                     bringSelectionIntoView(editText)
                 }
                 onRequestedSelectionHandled()
@@ -526,7 +531,7 @@ private fun EditText.configureNoteTextBase(
     setLinkTextColor(linkColor)
     hint = "Start writing"
     textSize = NoteBodyTextSizeSp * fontScale
-    minLines = 12
+    minLines = 1
     setSingleLine(false)
     maxLines = Int.MAX_VALUE
     gravity = Gravity.TOP or Gravity.START
@@ -573,42 +578,10 @@ private fun bringSelectionIntoView(editText: EditText) {
         editText.selectionEnd.takeIf { it >= 0 }?.coerceIn(0, textLength - 1) ?: (textLength - 1)
     }
     val line = layout.getLineForOffset(safeOffset)
-    val extraTop = editText.lineHeight
-    val extraBottom = maxOf(editText.lineHeight * 2, dpToPx(editText.context, 32))
-    val viewportHeight = (
-        editText.height - editText.totalPaddingTop - editText.totalPaddingBottom
-        ).coerceAtLeast(editText.lineHeight.coerceAtLeast(1))
-    val visibleTop = editText.scrollY
-    val visibleBottom = visibleTop + viewportHeight - extraBottom
-    val lineTop = layout.getLineTop(line)
-    val lineBottom = layout.getLineBottom(line)
-
-    val targetScrollY = when {
-        lineBottom > visibleBottom -> {
-            (lineBottom - viewportHeight + extraBottom).coerceAtLeast(0)
-        }
-
-        lineTop < visibleTop + extraTop -> {
-            (lineTop - extraTop).coerceAtLeast(0)
-        }
-
-        else -> editText.scrollY
-    }
-
-    if (targetScrollY != editText.scrollY) {
-        editText.scrollTo(editText.scrollX, targetScrollY)
-    }
-
-    if (getKeyboardOverlap(editText) > 0) {
-        val rect = Rect()
-        layout.getLineBounds(line, rect)
-        rect.left = 0
-        rect.right = editText.width
-        rect.offset(0, editText.totalPaddingTop - editText.scrollY)
-        rect.top -= extraTop
-        rect.bottom += extraBottom
-        editText.requestRectangleOnScreen(rect, true)
-    }
+    val rect = Rect()
+    layout.getLineBounds(line, rect)
+    rect.offset(editText.totalPaddingLeft, editText.totalPaddingTop)
+    editText.requestRectangleOnScreen(rect, false)
 }
 
 private fun shouldRefreshLinks(
@@ -652,12 +625,9 @@ private fun isLinkCompletionCharacter(character: Char): Boolean {
 private class NoteEditText(context: android.content.Context) : EditText(context) {
     var onSelectionChangedCallback: ((Int) -> Unit)? = null
     var onScrollChangedCallback: ((Int) -> Unit)? = null
-    private var keyboardAwareLayoutConfigured = false
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var touchDownY = 0f
     private var userIsDragging = false
-    private var keyboardVisible = false
-    private var lastAppliedBottomPadding = Int.MIN_VALUE
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
@@ -703,45 +673,6 @@ private class NoteEditText(context: android.content.Context) : EditText(context)
         }
     }
 
-    fun configureKeyboardAwarePadding() {
-        if (keyboardAwareLayoutConfigured) {
-            return
-        }
-
-        keyboardAwareLayoutConfigured = true
-        viewTreeObserver.addOnGlobalLayoutListener {
-            val keyboardOverlap = getKeyboardOverlap(this)
-            val isKeyboardVisible = keyboardOverlap > 0
-            val fallbackBottomSpace = maxOf(lineHeight * 4, dpToPx(context, 88))
-            val targetBottomPadding = if (isKeyboardVisible) {
-                fallbackBottomSpace
-            } else {
-                0
-            }
-            val paddingChanged = lastAppliedBottomPadding != targetBottomPadding
-            if (paddingChanged) {
-                setPadding(paddingLeft, paddingTop, paddingRight, targetBottomPadding)
-                lastAppliedBottomPadding = targetBottomPadding
-            }
-            if (hasFocus() && !userIsDragging && (paddingChanged || keyboardVisible != isKeyboardVisible)) {
-                post { bringSelectionIntoView(this) }
-            }
-            keyboardVisible = isKeyboardVisible
-        }
-    }
-}
-
-private fun dpToPx(context: android.content.Context, dp: Int): Int {
-    return (dp * context.resources.displayMetrics.density).toInt()
-}
-
-private fun getKeyboardOverlap(view: View): Int {
-    val root = view.rootView ?: return 0
-    val visibleFrame = Rect()
-    root.getWindowVisibleDisplayFrame(visibleFrame)
-    val overlap = (root.height - visibleFrame.bottom).coerceAtLeast(0)
-    val threshold = dpToPx(view.context, 120)
-    return if (overlap > threshold) overlap else 0
 }
 
 private class SimpleTextWatcher(
@@ -755,3 +686,4 @@ private class SimpleTextWatcher(
         afterTextChanged.invoke(s)
     }
 }
+

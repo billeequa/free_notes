@@ -3,6 +3,9 @@ package com.plainnotes.android.data
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.util.AtomicFile
+import java.io.File
+import java.security.MessageDigest
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.plainnotes.android.model.EditableNote
@@ -78,7 +81,7 @@ class NotesRepository(private val context: Context) {
         val root = rootDirectoryOrNull() ?: return@withContext emptyList()
         root.listFiles()
             .asSequence()
-            .filter { it.isFile && isNoteFile(it) }
+            .filter { it.isFile && isNoteFile(it) && it.name != TodoFileParser.FILE_NAME }
             .mapNotNull { readNoteDocument(it, isTrashed = false) }
             .sortedByDescending { it.modifiedAt }
             .toList()
@@ -88,7 +91,7 @@ class NotesRepository(private val context: Context) {
         val trashDirectory = trashDirectoryOrNull() ?: return@withContext emptyList()
         trashDirectory.listFiles()
             .asSequence()
-            .filter { it.isFile && isNoteFile(it) }
+            .filter { it.isFile && isNoteFile(it) && it.name != TodoFileParser.FILE_NAME }
             .mapNotNull { readNoteDocument(it, isTrashed = true) }
             .sortedByDescending { it.modifiedAt }
             .toList()
@@ -116,19 +119,21 @@ class NotesRepository(private val context: Context) {
 
     suspend fun loadEditableNote(uriString: String): EditableNote? = withContext(Dispatchers.IO) {
         val file = DocumentFile.fromSingleUri(context, Uri.parse(uriString)) ?: return@withContext null
-        readEditableNote(file, isTrashed = false)
+        val original = readEditableNote(file, isTrashed = false) ?: return@withContext null
+        val draft = draftFile(file.uri)
+        if (!draft.baseFile.exists()) return@withContext original
+        val parsed = NoteFileParser.parse(
+            draft.openRead().use { it.readBytes().toString(StandardCharsets.UTF_8) },
+            original.filename, file.lastModified(), now(),
+        )
+        // Recover a failed provider write on the next open.
+        original.copy(title = parsed.title, body = parsed.body, modifiedAt = parsed.modifiedAt)
     }
 
     suspend fun saveNote(note: EditableNote): EditableNote = withContext(Dispatchers.IO) {
         val updated = note.copy(modifiedAt = now())
-        val directory = if (updated.isTrashed) requireTrashDirectory() else requireRootDirectory()
-        val file = resolveCurrentFile(updated, directory)
+        val file = resolveCurrentFile(updated)
             ?: throw IOException("Note file is no longer available.")
-        val target = prepareSaveTarget(
-            file = file,
-            directory = directory,
-            note = updated,
-        )
         val serialized = NoteFileParser.serialize(
             NoteTextContent(
                 title = updated.title,
@@ -137,17 +142,61 @@ class NotesRepository(private val context: Context) {
                 body = updated.body,
             ),
         )
-        writeText(
-            target.file.uri,
-            serialized,
-        )
-        target.previousFileToDelete?.let { previous ->
-            if (previous.exists()) {
-                previous.delete()
-            }
+        // Keep the URI and filename stable while typing. SAF renames can invalidate both.
+        val draft = draftFile(file.uri)
+        val output = draft.startWrite()
+        try {
+            output.write(serialized.toByteArray(StandardCharsets.UTF_8))
+            draft.finishWrite(output)
+        } catch (error: Exception) {
+            draft.failWrite(output)
+            throw error
         }
-        readEditableNote(target.file, isTrashed = updated.isTrashed)
-            ?: throw IOException("Unable to reload the note after saving it.")
+        writeText(file.uri, serialized)
+        if (readText(file.uri) != serialized) throw IOException("The saved note could not be verified. Your draft is kept on this device; retry saving.")
+        draft.delete()
+        updated.copy(documentUri = file.uri, filename = file.name ?: updated.filename)
+    }
+
+    private fun draftFile(uri: Uri): AtomicFile {
+        val key = MessageDigest.getInstance("SHA-256")
+            .digest(uri.toString().toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return AtomicFile(File(context.filesDir, "note-drafts/$key.txt").also { it.parentFile?.mkdirs() })
+    }
+
+    suspend fun hasPendingDraft(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        draftFile(uri).baseFile.exists()
+    }
+
+    suspend fun loadTodos(): List<TodoItem> = withContext(Dispatchers.IO) {
+        val root = requireRootDirectory()
+        val draft = draftFile(root.uri)
+        if (draft.baseFile.exists()) {
+            return@withContext TodoFileParser.parse(draft.openRead().use { it.readBytes().toString(StandardCharsets.UTF_8) })
+        }
+        val file = root.findFile(TodoFileParser.FILE_NAME) ?: return@withContext emptyList()
+        TodoFileParser.parse(readText(file.uri) ?: throw IOException("Unable to read the to-do list."))
+    }
+
+    suspend fun saveTodos(items: List<TodoItem>) = withContext(Dispatchers.IO) {
+        val root = requireRootDirectory()
+        val serialized = TodoFileParser.serialize(items)
+        val draft = draftFile(root.uri)
+        val output = draft.startWrite()
+        try {
+            output.write(serialized.toByteArray(StandardCharsets.UTF_8))
+            draft.finishWrite(output)
+        } catch (error: Exception) {
+            draft.failWrite(output)
+            throw error
+        }
+        val file = root.findFile(TodoFileParser.FILE_NAME)
+            ?: root.createFile(TEXT_MIME_TYPE, TodoFileParser.FILE_NAME)
+            ?: throw IOException("Unable to create the to-do file.")
+        writeText(file.uri, serialized)
+        if (readText(file.uri) != serialized) throw IOException("Unable to verify the to-do file. A local draft is kept; tap Retry.")
+        draft.delete()
     }
 
     suspend fun renameNote(uriString: String, newTitle: String) {
@@ -329,46 +378,8 @@ class NotesRepository(private val context: Context) {
 
     private fun resolveCurrentFile(
         note: EditableNote,
-        directory: DocumentFile,
     ): DocumentFile? {
-        val byName = note.filename.takeIf { it.isNotBlank() }?.let { safeFindFile(directory, it) }
-        if (byName != null) {
-            return byName
-        }
-        return DocumentFile.fromSingleUri(context, note.documentUri)
-    }
-
-    private fun prepareSaveTarget(
-        file: DocumentFile,
-        directory: DocumentFile,
-        note: EditableNote,
-    ): SaveTarget {
-        val currentName = file.name ?: return SaveTarget(file)
-        val desiredName = uniqueFileName(
-            directory = directory,
-            preferredName = desiredFileName(note),
-            excludingName = currentName,
-        )
-        if (currentName == desiredName) {
-            return SaveTarget(file)
-        }
-
-        if (file.renameTo(desiredName)) {
-            val renamed = safeFindFile(directory, desiredName)
-                ?: throw IOException("Unable to reopen the renamed note file.")
-            return SaveTarget(renamed)
-        }
-
-        val replacement = directory.createFile(TEXT_MIME_TYPE, desiredName)
-            ?: throw IOException("Unable to create the renamed note file.")
-        return SaveTarget(
-            file = replacement,
-            previousFileToDelete = file,
-        )
-    }
-
-    private fun desiredFileName(note: EditableNote): String {
-        return "${fileStampFormatter.format(note.createdAt)}-${slugify(note.title)}.txt"
+        return DocumentFile.fromSingleUri(context, note.documentUri)?.takeIf { it.exists() }
     }
 
     private fun uniqueFileName(
@@ -414,8 +425,4 @@ class NotesRepository(private val context: Context) {
         private const val MAX_SLUG_LENGTH = 40
     }
 
-    private data class SaveTarget(
-        val file: DocumentFile,
-        val previousFileToDelete: DocumentFile? = null,
-    )
 }
