@@ -127,7 +127,7 @@ class NotesRepository(private val context: Context) {
             original.filename, file.lastModified(), now(),
         )
         // Recover a failed provider write on the next open.
-        original.copy(title = parsed.title, body = parsed.body, modifiedAt = parsed.modifiedAt)
+        original.copy(title = parsed.title, body = parsed.body, createdAt = parsed.createdAt, modifiedAt = parsed.modifiedAt)
     }
 
     suspend fun saveNote(note: EditableNote): EditableNote = withContext(Dispatchers.IO) {

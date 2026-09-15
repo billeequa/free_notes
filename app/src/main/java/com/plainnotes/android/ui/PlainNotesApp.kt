@@ -65,32 +65,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.ui.components.NoteBodyEditor
-import com.plainnotes.android.ui.components.NoteBodyViewer
 import com.plainnotes.android.ui.theme.PlainNotesTheme
 import com.plainnotes.android.ui.theme.plainNotesTopAppBarColors
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 private enum class AppScreen {
     Notes,
@@ -150,7 +141,6 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 noteUri = editingNoteUri.orEmpty(),
                 startInEditMode = editorStartsInEditMode,
                 fontScale = uiState.fontScale,
-                onNoteUriChanged = { editingNoteUri = it },
                 onBack = {
                     viewModel.closeEditor()
                     editingNoteUri = null
@@ -788,7 +778,6 @@ private fun NoteEditorRoute(
     noteUri: String,
     startInEditMode: Boolean,
     fontScale: Float,
-    onNoteUriChanged: (String) -> Unit,
     onBack: () -> Unit,
     onMoveToTrash: () -> Unit,
     viewModel: PlainNotesViewModel,

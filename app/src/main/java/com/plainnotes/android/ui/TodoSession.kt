@@ -37,10 +37,12 @@ class TodoSession(
         _state.value = _state.value.copy(loading = true, error = null)
         scope.launch {
             try {
-                val items = read()
-                _state.value = TodoState(items = items, loaded = true)
-                // Also flush any recovered local draft, even when the list is empty.
-                revision++
+                mutex.withLock {
+                    val items = read()
+                    _state.value = TodoState(items = items, loaded = true)
+                    // Also flush any recovered local draft, even when the list is empty.
+                    revision++
+                }
                 flush()
             } catch (error: CancellationException) { throw error
             } catch (error: Exception) {

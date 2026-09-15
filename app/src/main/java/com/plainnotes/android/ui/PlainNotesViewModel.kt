@@ -285,18 +285,26 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun refreshState() {
         _uiState.update { it.copy(isLoading = true) }
-        val folderInfo = repository.getFolderInfo()
-        val notes = sortNotes(repository.listActiveNotes(), _uiState.value.noteSortMode)
-        val trash = repository.listTrashedNotes()
-        _uiState.update { state ->
-            state.copy(
-                hasLoadedStorageConfig = true,
-                isStorageConfigured = folderInfo != null,
-                selectedFolderName = folderInfo?.displayName,
-                isLoading = false,
-                notes = notes,
-                trash = trash,
-            )
+        try {
+            val folderInfo = repository.getFolderInfo()
+            val notes = sortNotes(repository.listActiveNotes(), _uiState.value.noteSortMode)
+            val trash = repository.listTrashedNotes()
+            _uiState.update { state ->
+                state.copy(
+                    hasLoadedStorageConfig = true,
+                    isStorageConfigured = folderInfo != null,
+                    selectedFolderName = folderInfo?.displayName,
+                    notes = notes,
+                    trash = trash,
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            postStatus(error.message ?: "Unable to read your notes folder. Check folder access in Settings.")
+            _uiState.update { it.copy(hasLoadedStorageConfig = true) }
+        } finally {
+            _uiState.update { it.copy(isLoading = false) }
         }
     }
 
