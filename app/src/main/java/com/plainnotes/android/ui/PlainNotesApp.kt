@@ -75,19 +75,20 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.ui.components.NoteBodyEditor
-import com.plainnotes.android.ui.components.NoteBodyViewer
 import com.plainnotes.android.ui.theme.PlainNotesTheme
 import com.plainnotes.android.ui.theme.plainNotesTopAppBarColors
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 private enum class AppScreen {
     Notes,
+    Todos,
     Settings,
     Trash,
 }
@@ -120,6 +121,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
             when (currentScreen) {
                 AppScreen.Settings -> BackHandler { currentScreenName = AppScreen.Notes.name }
                 AppScreen.Trash -> BackHandler { currentScreenName = AppScreen.Settings.name }
+                AppScreen.Todos -> BackHandler { currentScreenName = AppScreen.Notes.name }
                 AppScreen.Notes -> Unit
             }
         }
@@ -144,14 +146,9 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 fontScale = uiState.fontScale,
                 onNoteUriChanged = { editingNoteUri = it },
                 onBack = {
+                    viewModel.closeEditor()
                     editingNoteUri = null
                     editorStartsInEditMode = false
-                },
-                onMoveToTrash = {
-                    viewModel.moveToTrash(editingNoteUri.orEmpty()) {
-                        editingNoteUri = null
-                        editorStartsInEditMode = false
-                    }
                 },
                 viewModel = viewModel,
                 snackbarHostState = snackbarHostState,
@@ -164,6 +161,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 uiState = uiState,
                 snackbarHostState = snackbarHostState,
                 onOpenSettings = { currentScreenName = AppScreen.Settings.name },
+                onOpenTodos = { currentScreenName = AppScreen.Todos.name },
                 onOpenNote = {
                     editorStartsInEditMode = false
                     editingNoteUri = it.documentUri.toString()
@@ -179,6 +177,13 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 onMoveToTrash = { viewModel.moveToTrash(it) },
                 noteSortMode = uiState.noteSortMode,
                 onSortSelected = viewModel::setNoteSortMode,
+            )
+
+            AppScreen.Todos -> TodoScreen(
+                state = uiState,
+                viewModel = viewModel,
+                snackbar = snackbarHostState,
+                onNotes = { currentScreenName = AppScreen.Notes.name },
             )
 
             AppScreen.Settings -> SettingsScreen(
@@ -243,6 +248,7 @@ private fun NotesHomeScreen(
     uiState: PlainNotesUiState,
     snackbarHostState: SnackbarHostState,
     onOpenSettings: () -> Unit,
+    onOpenTodos: () -> Unit,
     onOpenNote: (NoteDocument) -> Unit,
     onCreateNote: () -> Unit,
     onRenameNote: (String, String) -> Unit,
@@ -251,6 +257,7 @@ private fun NotesHomeScreen(
     onSortSelected: (NoteSortMode) -> Unit,
 ) {
     Scaffold(
+        topBar = { HomeTabs(false, {}, onOpenTodos) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Box(
@@ -783,23 +790,29 @@ private fun NoteEditorRoute(
     fontScale: Float,
     onNoteUriChanged: (String) -> Unit,
     onBack: () -> Unit,
-    onMoveToTrash: () -> Unit,
     viewModel: PlainNotesViewModel,
     snackbarHostState: SnackbarHostState,
 ) {
-    var note by remember(noteUri) { mutableStateOf<EditableNote?>(null) }
-    var isLoading by remember(noteUri) { mutableStateOf(true) }
+    var session by remember { mutableStateOf<NoteEditorSession?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(noteUri) {
+        // Updating the saved route URI must not replace a live native editor.
+        val current = session
+        if (current != null && (current.initialNote.documentUri.toString() == noteUri ||
+                current.savedNote.documentUri.toString() == noteUri)) return@LaunchedEffect
         isLoading = true
-        note = viewModel.loadNote(noteUri)
+        session = viewModel.openEditor(noteUri)
         isLoading = false
     }
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { innerPadding ->
         when {
             isLoading -> CenterLoading(Modifier.padding(innerPadding))
-            note == null -> {
+            session == null -> {
                 BackHandler(onBack = onBack)
                 Column(
                     modifier = Modifier
@@ -827,18 +840,15 @@ private fun NoteEditorRoute(
             }
 
             else -> NoteEditorScreen(
-                note = note!!,
+                session = session!!,
                 startInEditMode = startInEditMode,
                 fontScale = fontScale,
                 onBack = onBack,
-                onMoveToTrash = onMoveToTrash,
+                onMoveToTrash = { uri -> viewModel.moveToTrash(uri, onBack) },
                 onSave = { updated ->
-                    val saved = viewModel.saveNote(updated)
-                    if (saved != null) {
-                        note = saved
+                    viewModel.saveNote(updated)?.also { saved ->
                         onNoteUriChanged(saved.documentUri.toString())
                     }
-                    saved
                 },
                 modifier = Modifier,
             )
@@ -849,11 +859,11 @@ private fun NoteEditorRoute(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NoteEditorScreen(
-    note: EditableNote,
+    session: NoteEditorSession,
     startInEditMode: Boolean,
     fontScale: Float,
     onBack: () -> Unit,
-    onMoveToTrash: () -> Unit,
+    onMoveToTrash: (String) -> Unit,
     onSave: suspend (EditableNote) -> EditableNote?,
     modifier: Modifier = Modifier,
 ) {
@@ -862,25 +872,22 @@ private fun NoteEditorScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var currentDocumentUri by remember(note.documentUri.toString()) { mutableStateOf(note.documentUri) }
-    var currentFilename by remember(note.documentUri.toString()) { mutableStateOf(note.filename) }
-    var title by remember(note.documentUri.toString()) { mutableStateOf(note.title) }
-    var body by remember(note.documentUri.toString()) { mutableStateOf(note.body) }
-    var lastSavedTitle by remember(note.documentUri.toString()) { mutableStateOf(note.title) }
-    var lastSavedBody by remember(note.documentUri.toString()) { mutableStateOf(note.body) }
-    var lastSavedAt by remember(note.documentUri.toString()) { mutableStateOf(note.modifiedAt) }
-    var createdAt by remember(note.documentUri.toString()) { mutableStateOf(note.createdAt) }
-    var isSaving by remember(note.documentUri.toString()) { mutableStateOf(false) }
+    val note = session.initialNote
+    var title by session.title
+    var body by session.body
+    val lastSavedTitle = session.savedNote.title
+    val lastSavedBody = session.savedNote.body
+    val lastSavedAt = session.savedNote.modifiedAt
+    val createdAt = session.savedNote.createdAt
+    val isSaving = session.isSaving
     var renameDialogOpen by remember(note.documentUri.toString()) { mutableStateOf(false) }
     var pendingUrl by remember(note.documentUri.toString()) { mutableStateOf<String?>(null) }
     var confirmTrashDialogOpen by remember(note.documentUri.toString()) { mutableStateOf(false) }
-    var isInEditMode by rememberSaveable(note.documentUri.toString()) { mutableStateOf(startInEditMode) }
     var shouldFocusBodyEditor by remember(note.documentUri.toString()) { mutableStateOf(startInEditMode) }
     var requestedSelection by remember(note.documentUri.toString()) {
         mutableStateOf<Int?>(if (startInEditMode) note.body.length else null)
     }
     var noteScrollY by rememberSaveable(note.documentUri.toString()) { mutableStateOf(0) }
-    val saveMutex = remember(note.documentUri.toString()) { Mutex() }
     val fixedMetaTextStyle = MaterialTheme.typography.labelLarge.let { style ->
         style.copy(
             fontSize = style.fontSize * (0.9f / fontScale),
@@ -888,57 +895,7 @@ private fun NoteEditorScreen(
         )
     }
 
-    suspend fun saveIfNeeded() {
-        saveMutex.withLock {
-            if (title == lastSavedTitle && body == lastSavedBody) {
-                return@withLock
-            }
-
-            isSaving = true
-            try {
-                val saved = onSave(
-                    note.copy(
-                        documentUri = currentDocumentUri,
-                        filename = currentFilename,
-                        title = title,
-                        body = body,
-                        createdAt = createdAt,
-                    ),
-                )
-                if (saved != null) {
-                    currentDocumentUri = saved.documentUri
-                    currentFilename = saved.filename
-                    lastSavedTitle = saved.title
-                    lastSavedBody = saved.body
-                    lastSavedAt = saved.modifiedAt
-                    createdAt = saved.createdAt
-                    title = saved.title
-                    body = saved.body
-                }
-            } finally {
-                isSaving = false
-            }
-        }
-    }
-
-    LaunchedEffect(note.documentUri.toString()) {
-        currentDocumentUri = note.documentUri
-        currentFilename = note.filename
-        title = note.title
-        body = note.body
-        lastSavedTitle = note.title
-        lastSavedBody = note.body
-        createdAt = note.createdAt
-        isInEditMode = startInEditMode
-        shouldFocusBodyEditor = startInEditMode
-        requestedSelection = if (startInEditMode) note.body.length else null
-        noteScrollY = 0
-    }
-
-    LaunchedEffect(note.modifiedAt, note.createdAt) {
-        lastSavedAt = note.modifiedAt
-        createdAt = note.createdAt
-    }
+    suspend fun saveIfNeeded(): Boolean = session.save(onSave)
 
     LaunchedEffect(title, body) {
         if (title == lastSavedTitle && body == lastSavedBody) {
@@ -950,14 +907,9 @@ private fun NoteEditorScreen(
 
     BackHandler {
         scope.launch {
-            if (isInEditMode) {
-                saveIfNeeded()
+            if (saveIfNeeded()) {
                 keyboardController?.hide()
                 focusManager.clearFocus()
-                isInEditMode = false
-                shouldFocusBodyEditor = false
-            } else {
-                saveIfNeeded()
                 onBack()
             }
         }
@@ -965,7 +917,7 @@ private fun NoteEditorScreen(
 
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, note.documentUri.toString()) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
+            if (event == Lifecycle.Event.ON_PAUSE) {
                 lifecycleOwner.lifecycleScope.launch { saveIfNeeded() }
             }
         }
@@ -989,8 +941,7 @@ private fun NoteEditorScreen(
                     IconButton(
                         onClick = {
                             scope.launch {
-                                saveIfNeeded()
-                                onBack()
+                                if (saveIfNeeded()) onBack()
                             }
                         },
                     ) {
@@ -1019,6 +970,8 @@ private fun NoteEditorScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
+                .imePadding()
                 .background(MaterialTheme.colorScheme.background),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -1037,7 +990,11 @@ private fun NoteEditorScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (isSaving) "Saving..." else "Saved ${shortDateTime(lastSavedAt)}",
+                        text = when {
+                            isSaving -> "Saving…"
+                            title != lastSavedTitle || body != lastSavedBody -> "Unsaved changes"
+                            else -> "Saved ${shortDateTime(lastSavedAt)}"
+                        },
                         style = fixedMetaTextStyle,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
@@ -1063,36 +1020,21 @@ private fun NoteEditorScreen(
                     .background(MaterialTheme.colorScheme.background)
                     .padding(horizontal = 18.dp),
             ) {
-                if (isInEditMode) {
-                    NoteBodyEditor(
-                        value = body,
-                        onValueChange = { body = it },
-                        onUrlTapped = { pendingUrl = it },
-                        shouldRequestFocus = shouldFocusBodyEditor,
-                        onFocusHandled = { shouldFocusBodyEditor = false },
-                        requestedSelection = requestedSelection,
-                        onRequestedSelectionHandled = { requestedSelection = null },
-                        initialScrollY = noteScrollY,
-                        onSelectionChanged = { requestedSelection = it },
-                        onScrollChanged = { noteScrollY = it },
-                        fontScale = fontScale,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    NoteBodyViewer(
-                        value = body,
-                        onTapToEdit = { selectionOffset ->
-                            requestedSelection = selectionOffset
-                            isInEditMode = true
-                            shouldFocusBodyEditor = true
-                        },
-                        onUrlTapped = { pendingUrl = it },
-                        initialScrollY = noteScrollY,
-                        onScrollChanged = { noteScrollY = it },
-                        fontScale = fontScale,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                NoteBodyEditor(
+                    value = body,
+                    onValueChange = { body = it },
+                    onUrlTapped = { pendingUrl = it },
+                    shouldRequestFocus = shouldFocusBodyEditor,
+                    onFocusHandled = { shouldFocusBodyEditor = false },
+                    requestedSelection = requestedSelection,
+                    onRequestedSelectionHandled = { requestedSelection = null },
+                    initialScrollY = noteScrollY,
+                    onSelectionChanged = { requestedSelection = it },
+                    onScrollChanged = { noteScrollY = it },
+                    fontScale = fontScale,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
             }
         }
     }
@@ -1102,7 +1044,7 @@ private fun NoteEditorScreen(
             initialTitle = title,
             onDismiss = { renameDialogOpen = false },
             onConfirm = { newTitle ->
-                title = newTitle
+                title = newTitle.trim()
                 renameDialogOpen = false
             },
         )
@@ -1151,8 +1093,7 @@ private fun NoteEditorScreen(
                     onClick = {
                         confirmTrashDialogOpen = false
                         scope.launch {
-                            saveIfNeeded()
-                            onMoveToTrash()
+                            if (saveIfNeeded()) onMoveToTrash(session.savedNote.documentUri.toString())
                         }
                     },
                 ) {
@@ -1212,3 +1153,4 @@ private fun shortDate(value: OffsetDateTime): String {
 private fun shortDateTime(value: OffsetDateTime): String {
     return value.format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
 }
+
