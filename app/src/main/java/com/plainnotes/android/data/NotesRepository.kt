@@ -23,9 +23,12 @@ import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class NotesRepository(private val context: Context) {
+    private val storageMutex = Mutex()
     private val settingsRepository = AppSettingsRepository(context)
     private val contentResolver: ContentResolver = context.contentResolver
     private val fileStampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.US)
@@ -75,79 +78,90 @@ class NotesRepository(private val context: Context) {
     }
 
     suspend fun listActiveNotes(): List<NoteDocument> = withContext(Dispatchers.IO) {
-        val root = rootDirectoryOrNull() ?: return@withContext emptyList()
-        root.listFiles()
-            .asSequence()
-            .filter { it.isFile && isNoteFile(it) }
-            .mapNotNull { readNoteDocument(it, isTrashed = false) }
-            .sortedByDescending { it.modifiedAt }
-            .toList()
+        storageMutex.withLock {
+            val root = rootDirectoryOrNull() ?: return@withContext emptyList()
+            root.listFiles()
+                .asSequence()
+                .filter { it.isFile && isNoteFile(it) }
+                .mapNotNull { readNoteDocument(it, isTrashed = false) }
+                .sortedByDescending { it.modifiedAt }
+                .toList()
+        }
     }
 
     suspend fun listTrashedNotes(): List<NoteDocument> = withContext(Dispatchers.IO) {
-        val trashDirectory = trashDirectoryOrNull() ?: return@withContext emptyList()
-        trashDirectory.listFiles()
-            .asSequence()
-            .filter { it.isFile && isNoteFile(it) }
-            .mapNotNull { readNoteDocument(it, isTrashed = true) }
-            .sortedByDescending { it.modifiedAt }
-            .toList()
+        storageMutex.withLock {
+            val trashDirectory = trashDirectoryOrNull() ?: return@withContext emptyList()
+            trashDirectory.listFiles()
+                .asSequence()
+                .filter { it.isFile && isNoteFile(it) }
+                .mapNotNull { readNoteDocument(it, isTrashed = true) }
+                .sortedByDescending { it.modifiedAt }
+                .toList()
+        }
     }
 
     suspend fun createBlankNote(): EditableNote = withContext(Dispatchers.IO) {
-        val root = requireRootDirectory()
-        val now = now()
-        val fileName = uniqueFileName(
-            directory = root,
-            preferredName = "${fileStampFormatter.format(now)}-${slugify("")}.txt",
-        )
-        val file = root.createFile(TEXT_MIME_TYPE, fileName)
-            ?: throw IOException("Unable to create note file.")
-        val content = NoteTextContent(
-            title = "",
-            createdAt = now,
-            modifiedAt = now,
-            body = "",
-        )
-        writeText(file.uri, NoteFileParser.serialize(content))
-        readEditableNote(file, isTrashed = false)
-            ?: throw IOException("Unable to read the note after creating it.")
+        storageMutex.withLock {
+            val root = requireRootDirectory()
+            val now = now()
+            val fileName = uniqueFileName(
+                directory = root,
+                preferredName = "${fileStampFormatter.format(now)}-${slugify("")}.txt",
+            )
+            val file = root.createFile(TEXT_MIME_TYPE, fileName)
+                ?: throw IOException("Unable to create note file.")
+            val content = NoteTextContent(
+                title = "",
+                createdAt = now,
+                modifiedAt = now,
+                body = "",
+            )
+            writeText(file.uri, NoteFileParser.serialize(content))
+            readEditableNote(file, isTrashed = false)
+                ?: throw IOException("Unable to read the note after creating it.")
+        }
     }
 
     suspend fun loadEditableNote(uriString: String): EditableNote? = withContext(Dispatchers.IO) {
-        val file = DocumentFile.fromSingleUri(context, Uri.parse(uriString)) ?: return@withContext null
-        readEditableNote(file, isTrashed = false)
+        storageMutex.withLock {
+            val file = DocumentFile.fromSingleUri(context, Uri.parse(uriString)) ?: return@withContext null
+            readEditableNote(file, isTrashed = false)
+        }
     }
 
     suspend fun saveNote(note: EditableNote): EditableNote = withContext(Dispatchers.IO) {
-        val updated = note.copy(modifiedAt = now())
-        val directory = if (updated.isTrashed) requireTrashDirectory() else requireRootDirectory()
-        val file = resolveCurrentFile(updated, directory)
-            ?: throw IOException("Note file is no longer available.")
-        val target = prepareSaveTarget(
-            file = file,
-            directory = directory,
-            note = updated,
-        )
-        val serialized = NoteFileParser.serialize(
-            NoteTextContent(
-                title = updated.title,
-                createdAt = updated.createdAt,
-                modifiedAt = updated.modifiedAt,
-                body = updated.body,
-            ),
-        )
-        writeText(
-            target.file.uri,
-            serialized,
-        )
-        target.previousFileToDelete?.let { previous ->
-            if (previous.exists()) {
-                previous.delete()
+        storageMutex.withLock {
+            val updated = note.copy(modifiedAt = now())
+            val directory = if (updated.isTrashed) requireTrashDirectory() else requireRootDirectory()
+            val file = resolveCurrentFile(updated, directory)
+                ?: throw IOException("Note file is no longer available.")
+            val target = prepareSaveTarget(
+                file = file,
+                directory = directory,
+                note = updated,
+            )
+            val serialized = NoteFileParser.serialize(
+                NoteTextContent(
+                    title = updated.title,
+                    createdAt = updated.createdAt,
+                    modifiedAt = updated.modifiedAt,
+                    body = updated.body,
+                ),
+            )
+            writeText(
+                target.file.uri,
+                serialized,
+            )
+            check(readText(target.file.uri) == serialized) { "Saved note could not be verified." }
+            target.previousFileToDelete?.let { previous ->
+                if (previous.exists()) {
+                    previous.delete()
+                }
             }
+            readEditableNote(target.file, isTrashed = updated.isTrashed)
+                ?: throw IOException("Unable to reload the note after saving it.")
         }
-        readEditableNote(target.file, isTrashed = updated.isTrashed)
-            ?: throw IOException("Unable to reload the note after saving it.")
     }
 
     suspend fun renameNote(uriString: String, newTitle: String) {
@@ -193,39 +207,59 @@ class NotesRepository(private val context: Context) {
     }
 
     suspend fun exportActiveNotes(): ExportResult = withContext(Dispatchers.IO) {
-        val root = requireRootDirectory()
-        val exportsDirectory = requireExportsDirectory()
-        val exportName = "notes-export-${exportStampFormatter.format(now())}.zip"
-        val exportFile = exportsDirectory.createFile(ZIP_MIME_TYPE, exportName)
-            ?: throw IOException("Unable to create the export zip.")
+        storageMutex.withLock {
+            val root = requireRootDirectory()
+            val exportsDirectory = requireExportsDirectory()
+            val exportName = "notes-export-${exportStampFormatter.format(now())}.zip"
+            val exportFile = exportsDirectory.createFile(ZIP_MIME_TYPE, exportName)
+                ?: throw IOException("Unable to create the export zip.")
 
-        ZipOutputStream(
-            BufferedOutputStream(
-                contentResolver.openOutputStream(exportFile.uri)
-                    ?: throw IOException("Unable to open the export zip for writing."),
-            ),
-        ).use { zipStream ->
-            root.listFiles()
-                .asSequence()
-                .filter { it.isFile && isNoteFile(it) }
-                .sortedBy { it.name ?: "" }
-                .forEach { file ->
-                    val entryName = file.name ?: "note.txt"
-                    zipStream.putNextEntry(ZipEntry(entryName))
-                    BufferedInputStream(
-                        contentResolver.openInputStream(file.uri)
-                            ?: throw IOException("Unable to read ${file.name}."),
-                    ).use { input ->
-                        input.copyTo(zipStream)
+            ZipOutputStream(
+                BufferedOutputStream(
+                    contentResolver.openOutputStream(exportFile.uri)
+                        ?: throw IOException("Unable to open the export zip for writing."),
+                ),
+            ).use { zipStream ->
+                root.listFiles()
+                    .asSequence()
+                    .filter { it.isFile && (isNoteFile(it) || it.name == TodoFileParser.FILE_NAME) }
+                    .sortedBy { it.name ?: "" }
+                    .forEach { file ->
+                        val entryName = file.name ?: "note.txt"
+                        zipStream.putNextEntry(ZipEntry(entryName))
+                        BufferedInputStream(
+                            contentResolver.openInputStream(file.uri)
+                                ?: throw IOException("Unable to read ${file.name}."),
+                        ).use { input ->
+                            input.copyTo(zipStream)
+                        }
+                        zipStream.closeEntry()
                     }
-                    zipStream.closeEntry()
-                }
-        }
+            }
 
-        ExportResult(
-            fileName = exportFile.name ?: exportName,
-            documentUri = exportFile.uri,
-        )
+            ExportResult(
+                fileName = exportFile.name ?: exportName,
+                documentUri = exportFile.uri,
+            )
+        }
+    }
+
+    suspend fun loadTodos(): List<TodoItem> = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val root = requireRootDirectory()
+            val file = safeFindFile(root, TodoFileParser.FILE_NAME) ?: return@withContext emptyList()
+            TodoFileParser.parse(readRecoverableText(file.uri) ?: throw IOException("Unable to read the to-do list."))
+        }
+    }
+
+    suspend fun saveTodos(items: List<TodoItem>) = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val root = requireRootDirectory()
+            val file = safeFindFile(root, TodoFileParser.FILE_NAME)
+                ?: root.createFile(TEXT_MIME_TYPE, TodoFileParser.FILE_NAME)
+                ?: throw IOException("Unable to create the to-do list.")
+            writeText(file.uri, TodoFileParser.serialize(items))
+        }
     }
 
     private suspend fun rootDirectoryOrNull(): DocumentFile? {
@@ -258,6 +292,7 @@ class NotesRepository(private val context: Context) {
     }
 
     private fun isNoteFile(file: DocumentFile): Boolean {
+        if (file.name == TodoFileParser.FILE_NAME) return false
         val lowerName = file.name?.lowercase(Locale.US).orEmpty()
         return lowerName.endsWith(".txt") || file.type == TEXT_MIME_TYPE
     }
@@ -276,7 +311,7 @@ class NotesRepository(private val context: Context) {
     }
 
     private fun readNoteDocument(file: DocumentFile, isTrashed: Boolean): NoteDocument? {
-        val text = readText(file.uri) ?: return null
+        val text = readRecoverableText(file.uri) ?: return null
         val parsed = NoteFileParser.parse(
             rawText = text,
             fallbackFileName = file.name,
@@ -300,10 +335,40 @@ class NotesRepository(private val context: Context) {
         }
     }.getOrNull()
 
+    private fun recoveryFile(uri: Uri): android.util.AtomicFile {
+        val directory = java.io.File(context.filesDir, "pending-writes").apply { mkdirs() }
+        val key = java.util.UUID.nameUUIDFromBytes(uri.toString().toByteArray()).toString()
+        return android.util.AtomicFile(java.io.File(directory, "$key.txt"))
+    }
+
+    private fun readRecoverableText(uri: Uri): String? {
+        val recovery = recoveryFile(uri)
+        if (recovery.baseFile.exists() || java.io.File(recovery.baseFile.path + ".bak").exists()) {
+            val pending = recovery.openRead().use { it.readBytes().toString(StandardCharsets.UTF_8) }
+            writeText(uri, pending)
+            return pending
+        }
+        return readText(uri)
+    }
+
     private fun writeText(uri: Uri, text: String) {
+        // SAF providers do not offer atomic replacement. Keep the attempted write locally
+        // until read-back succeeds, so an interrupted/provider-failed write is recoverable.
+        val recovery = recoveryFile(uri)
+        val bytes = text.toByteArray(StandardCharsets.UTF_8)
+        val stream = recovery.startWrite()
+        try {
+            stream.write(bytes)
+            recovery.finishWrite(stream)
+        } catch (error: Exception) {
+            recovery.failWrite(stream)
+            throw error
+        }
         contentResolver.openOutputStream(uri, "wt")?.use { output ->
-            output.write(text.toByteArray(StandardCharsets.UTF_8))
-        } ?: throw IOException("Unable to open the note file for writing.")
+            output.write(bytes)
+        } ?: throw IOException("Unable to open the file for writing. A recovery copy is kept on this device.")
+        if (readText(uri) != text) throw IOException("Save verification failed. A recovery copy is kept on this device.")
+        recovery.delete()
     }
 
     private fun copyDocumentToDirectory(source: DocumentFile, targetDirectory: DocumentFile): DocumentFile {
@@ -351,12 +416,6 @@ class NotesRepository(private val context: Context) {
         )
         if (currentName == desiredName) {
             return SaveTarget(file)
-        }
-
-        if (file.renameTo(desiredName)) {
-            val renamed = safeFindFile(directory, desiredName)
-                ?: throw IOException("Unable to reopen the renamed note file.")
-            return SaveTarget(renamed)
         }
 
         val replacement = directory.createFile(TEXT_MIME_TYPE, desiredName)
@@ -419,3 +478,4 @@ class NotesRepository(private val context: Context) {
         val previousFileToDelete: DocumentFile? = null,
     )
 }
+

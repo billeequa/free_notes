@@ -7,6 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.plainnotes.android.data.NotesRepository
 import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
+import com.plainnotes.android.data.TodoItem
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,11 +56,16 @@ data class PlainNotesUiState(
     val isLoading: Boolean = true,
     val notes: List<NoteDocument> = emptyList(),
     val trash: List<NoteDocument> = emptyList(),
+    val todos: List<TodoItem> = emptyList(),
+    val todosLoaded: Boolean = false,
+    val todoError: String? = null,
     val statusMessage: String? = null,
 )
 
 class PlainNotesViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = NotesRepository(application)
+    private val todoMutex = Mutex()
+    private var editorSession: NoteEditorSession? = null
     private val _uiState = MutableStateFlow(PlainNotesUiState())
     val uiState: StateFlow<PlainNotesUiState> = _uiState.asStateFlow()
 
@@ -72,7 +82,12 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                         isLoading = false,
                     )
                 } else {
-                    refreshState()
+                    try { refreshState() } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        _uiState.update { it.copy(hasLoadedStorageConfig = true, isStorageConfigured = true) }
+                        postStatus(error.message ?: "Unable to open the notes folder.")
+                    }
                 }
             }
         }
@@ -103,6 +118,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     fun onFolderPicked(uri: Uri) {
         viewModelScope.launch {
             try {
+                _uiState.update { it.copy(todos = emptyList(), todosLoaded = false, todoError = null) }
                 repository.persistRootFolder(uri)
                 refreshState()
             } catch (error: CancellationException) {
@@ -128,7 +144,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     suspend fun createNote(): EditableNote? {
         return try {
             val created = repository.createBlankNote()
-            refreshState()
+            refresh()
             created
         } catch (error: CancellationException) {
             throw error
@@ -149,10 +165,19 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    suspend fun openEditor(uri: String): NoteEditorSession? {
+        editorSession?.let { session ->
+            if (session.initialNote.documentUri.toString() == uri || session.savedNote.documentUri.toString() == uri) return session
+        }
+        return loadNote(uri)?.let { NoteEditorSession(it).also { session -> editorSession = session } }
+    }
+
+    fun closeEditor() { editorSession = null }
+
     suspend fun saveNote(note: EditableNote): EditableNote? {
         return try {
             val saved = repository.saveNote(note)
-            refreshState()
+            refresh()
             saved
         } catch (error: CancellationException) {
             throw error
@@ -166,8 +191,8 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 repository.moveToTrash(uriString)
-                refreshState()
                 onDone?.invoke()
+                refresh()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -211,6 +236,36 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                 throw error
             } catch (error: Exception) {
                 postStatus(error.message ?: "Unable to export notes.")
+            }
+        }
+    }
+
+    fun loadTodos() {
+        viewModelScope.launch {
+            todoMutex.withLock {
+                try {
+                    val items = repository.loadTodos()
+                    _uiState.update { it.copy(todos = items, todosLoaded = true, todoError = null) }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    _uiState.update { it.copy(todosLoaded = false, todoError = error.message ?: "Unable to load to-dos.") }
+                }
+            }
+        }
+    }
+
+    suspend fun changeTodos(change: (List<TodoItem>) -> List<TodoItem>): Boolean = withContext(NonCancellable) {
+        todoMutex.withLock {
+            if (!_uiState.value.todosLoaded) return@withLock false
+            try {
+                val updated = change(_uiState.value.todos)
+                repository.saveTodos(updated)
+                _uiState.update { it.copy(todos = updated, todoError = null) }
+                true
+            } catch (error: Exception) {
+                postStatus(error.message ?: "Unable to save the to-do list.")
+                false
             }
         }
     }
@@ -270,18 +325,22 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun refreshState() {
         _uiState.update { it.copy(isLoading = true) }
-        val folderInfo = repository.getFolderInfo()
-        val notes = sortNotes(repository.listActiveNotes(), _uiState.value.noteSortMode)
-        val trash = repository.listTrashedNotes()
-        _uiState.update { state ->
-            state.copy(
-                hasLoadedStorageConfig = true,
-                isStorageConfigured = folderInfo != null,
-                selectedFolderName = folderInfo?.displayName,
-                isLoading = false,
-                notes = notes,
-                trash = trash,
-            )
+        try {
+            val folderInfo = repository.getFolderInfo()
+            val notes = sortNotes(repository.listActiveNotes(), _uiState.value.noteSortMode)
+            val trash = repository.listTrashedNotes()
+            _uiState.update { state ->
+                state.copy(
+                    hasLoadedStorageConfig = true,
+                    isStorageConfigured = folderInfo != null,
+                    selectedFolderName = folderInfo?.displayName,
+                    isLoading = false,
+                    notes = notes,
+                    trash = trash,
+                )
+            }
+        } finally {
+            _uiState.update { it.copy(isLoading = false) }
         }
     }
 
@@ -296,3 +355,4 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 }
+

@@ -54,3 +54,38 @@ yyyyMMdd-HHmmss-title-slug.txt
 ```
 
 The timestamp is the note's creation time and does not change when the title changes. Titles are lowercased, non-alphanumeric runs become hyphens, and the slug is limited to 40 characters. Empty titles use `untitled`. Collisions receive numeric suffixes such as `-2` and `-3`.
+
+
+
+## To-do timeline
+
+`to_do_jnotes.txt` is reserved for the To-do tab, excluded from ordinary notes,
+and included in ZIP exports. It is a UTF-8 text file with this versioned format:
+
+```text
+Jnotes To-do: 1
+
+id: 907b24eb-a5d0-4721-b2be-47c0bdeeb836
+title: Check cavity calibration
+description: Optional details
+added: 2026-09-15T09:00:00-04:00
+completed: 2026-09-15T10:00:00-04:00
+flagged: true
+```
+
+Every record has these six fields in order. Incomplete items have an empty
+`completed: ` value. IDs are stable UUIDs. Dates use ISO-8601 offsets; the UI
+shows local time. Titles and descriptions escape backslashes as `\\`, newlines
+as `\n`, and carriage returns as `\r`. Unknown versions, incomplete records,
+and duplicate IDs are rejected rather than silently overwritten.
+
+The display sorts by creation time, oldest first, and opens at the newest
+unfinished item (or the last item if everything is complete). Completion keeps
+an item in place. Reopening clears its completion timestamp. Editing and flagging
+preserve creation/completion timestamps. Permanent deletion requires confirmation.
+
+Writes keep a private on-device recovery copy until provider read-back verifies
+the UTF-8 contents. Opening a file with a pending write retries that write before
+parsing. Renaming a note writes and verifies a replacement before deleting the
+previous file. Storage-provider atomic replacement is not universally available;
+interruption during a rename can leave a duplicate, rather than discard the old copy.
