@@ -17,6 +17,8 @@ class NoteEditorSession(val initialNote: EditableNote) {
         private set
     var isSaving by mutableStateOf(false)
         private set
+    var saveFailed by mutableStateOf(false)
+        private set
     private val mutex = Mutex()
 
     val isDirty: Boolean get() = title.value != savedNote.title || body.value != savedNote.body
@@ -27,7 +29,11 @@ class NoteEditorSession(val initialNote: EditableNote) {
             isSaving = true
             try {
                 val snapshot = savedNote.copy(title = title.value, body = body.value)
-                val saved = saveNote(snapshot) ?: return@withLock false
+                val saved = saveNote(snapshot) ?: run {
+                    saveFailed = true
+                    return@withLock false
+                }
+                saveFailed = false
                 // Acknowledging a snapshot must never overwrite edits made while it was in flight.
                 savedNote = saved
                 !isDirty
@@ -37,3 +43,4 @@ class NoteEditorSession(val initialNote: EditableNote) {
         }
     }
 }
+

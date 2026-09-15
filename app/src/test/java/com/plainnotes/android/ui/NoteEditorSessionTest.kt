@@ -40,6 +40,9 @@ class NoteEditorSessionTest {
         assertEquals("Keep me", session.body.value)
         assertTrue(session.isDirty)
         assertFalse(session.isSaving)
+        assertTrue(session.saveFailed)
+        assertTrue(session.save { it })
+        assertFalse(session.saveFailed)
     }
 
     @Test fun serializedSavesUseNewProviderUri() = runBlocking {
@@ -55,3 +58,4 @@ class NoteEditorSessionTest {
         })
     }
 }
+
