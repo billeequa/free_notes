@@ -54,3 +54,32 @@ yyyyMMdd-HHmmss-title-slug.txt
 ```
 
 The timestamp is the note's creation time and does not change when the title changes. Titles are lowercased, non-alphanumeric runs become hyphens, and the slug is limited to 40 characters. Empty titles use `untitled`. Collisions receive numeric suffixes such as `-2` and `-3`.
+
+
+## To-do timeline
+
+`to_do_jnotes.txt` is reserved for the to-do page and is excluded from the ordinary
+note list. Exports include it. It is UTF-8 text with this header:
+
+```text
+# Jnotes todo v1\tid\tcreated\tcompleted\tflagged\ttext
+```
+
+Here `\t` denotes a literal tab. Each following line has five tab-separated fields:
+UUID, ISO-8601 creation timestamp with offset, completion timestamp (or `-`),
+flag (`0` or `1`), and item text. Backslash, tab, newline and carriage return in
+text are escaped as `\\`, `\t`, `\n` and `\r`. Completed items remain in the file.
+Reopening clears the completion timestamp; creation and ID stay unchanged.
+Unknown headers, duplicate IDs and invalid rows produce an error rather than a
+partial load that might discard history. Preserve the header when editing manually.
+
+## Save recovery
+
+Note titles are metadata; editing a title no longer renames the underlying file.
+This keeps Android document URIs stable. Before replacing a note or to-do file,
+the app writes a private `AtomicFile` recovery draft, verifies the provider's
+readback after writing, then removes the draft. Failed writes remain retryable;
+opening the same document/folder recovers a pending local draft. This protects
+against provider failures during a write, but is not an atomic transaction across
+all cloud providers. Force-stopping before the debounce/save begins can still lose
+the latest unpersisted keystrokes. Normal backgrounding requests an immediate save.

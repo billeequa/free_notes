@@ -56,6 +56,7 @@ data class PlainNotesUiState(
 
 class PlainNotesViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = NotesRepository(application)
+    val todos = TodoSession(viewModelScope, repository::loadTodos, repository::saveTodos)
     private val _uiState = MutableStateFlow(PlainNotesUiState())
     val uiState: StateFlow<PlainNotesUiState> = _uiState.asStateFlow()
 
@@ -103,7 +104,9 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     fun onFolderPicked(uri: Uri) {
         viewModelScope.launch {
             try {
+                if (!todos.flush()) throw IllegalStateException("Save the to-do list before changing folders.")
                 repository.persistRootFolder(uri)
+                todos.reset()
                 refreshState()
             } catch (error: CancellationException) {
                 throw error
@@ -149,11 +152,22 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private var editorSession: NoteEditorSession? = null
+
+    suspend fun openEditor(uriString: String): NoteEditorSession? {
+        editorSession?.takeIf { it.note.value.documentUri.toString() == uriString }?.let { return it }
+        val note = loadNote(uriString) ?: return null
+        return NoteEditorSession(note, viewModelScope, repository.hasPendingDraft(note.documentUri), ::saveNote).also { editorSession = it }
+    }
+
+    fun closeEditor() {
+        editorSession = null
+        refresh()
+    }
+
     suspend fun saveNote(note: EditableNote): EditableNote? {
         return try {
-            val saved = repository.saveNote(note)
-            refreshState()
-            saved
+            repository.saveNote(note)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -166,6 +180,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 repository.moveToTrash(uriString)
+                editorSession = null
                 refreshState()
                 onDone?.invoke()
             } catch (error: CancellationException) {
@@ -270,18 +285,26 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun refreshState() {
         _uiState.update { it.copy(isLoading = true) }
-        val folderInfo = repository.getFolderInfo()
-        val notes = sortNotes(repository.listActiveNotes(), _uiState.value.noteSortMode)
-        val trash = repository.listTrashedNotes()
-        _uiState.update { state ->
-            state.copy(
-                hasLoadedStorageConfig = true,
-                isStorageConfigured = folderInfo != null,
-                selectedFolderName = folderInfo?.displayName,
-                isLoading = false,
-                notes = notes,
-                trash = trash,
-            )
+        try {
+            val folderInfo = repository.getFolderInfo()
+            val notes = sortNotes(repository.listActiveNotes(), _uiState.value.noteSortMode)
+            val trash = repository.listTrashedNotes()
+            _uiState.update { state ->
+                state.copy(
+                    hasLoadedStorageConfig = true,
+                    isStorageConfigured = folderInfo != null,
+                    selectedFolderName = folderInfo?.displayName,
+                    notes = notes,
+                    trash = trash,
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            postStatus(error.message ?: "Unable to read your notes folder. Check folder access in Settings.")
+            _uiState.update { it.copy(hasLoadedStorageConfig = true) }
+        } finally {
+            _uiState.update { it.copy(isLoading = false) }
         }
     }
 
@@ -296,3 +319,4 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 }
+
