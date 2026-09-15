@@ -31,3 +31,21 @@ verify Android IME, touch, or Storage Access Framework behavior.
 A debug APK uses a development signing key. Updating an existing installation
 requires the same signing key as that installation. Do not uninstall to bypass
 this: build/sign with the original key if an in-place update is needed.
+
+
+
+## Version 1.2 usability regressions
+
+- Trigger completion, flagging, and deletion in quick succession on a slow provider;
+  every accepted action must be applied in order, including after changing tabs.
+- Edit a task and press Back, Cancel, or tap outside: choose Keep editing and verify
+  both fields survive; only Discard should remove the draft.
+- Scroll into history, switch to Notes and back, and rotate: keep the same position.
+  The latest shortcut returns to the newest unfinished item in the current filter.
+- Add a title-only task using keyboard Done; use Save and add another repeatedly.
+  The next title is focused, descriptions remain optional, and failed saves retain text.
+- Use the visible checkbox and menu with TalkBack; verify completion and long-press
+  still work. Verify the existing main-page floating buttons still overlay entries.
+- Force a note save failure: Not saved — Retry remains available under the title.
+  Retrying must clear the failure only after a successful save. Note information
+  contains timestamps; the separate metadata strip is gone.

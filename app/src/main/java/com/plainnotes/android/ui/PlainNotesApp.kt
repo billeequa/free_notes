@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -55,6 +56,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -98,12 +100,17 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val screenStateHolder = rememberSaveableStateHolder()
     var currentScreenName by rememberSaveable { mutableStateOf(AppScreen.Notes.name) }
     var editingNoteUri by rememberSaveable { mutableStateOf<String?>(null) }
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
     val folderPicker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
-        uri?.let(viewModel::onFolderPicked)
+        uri?.let {
+            screenStateHolder.removeState(AppScreen.Notes.name)
+            screenStateHolder.removeState(AppScreen.Todos.name)
+            viewModel.onFolderPicked(it)
+        }
     }
 
     LaunchedEffect(uiState.statusMessage) {
@@ -156,57 +163,59 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
             return@PlainNotesTheme
         }
 
-        when (currentScreen) {
-            AppScreen.Notes -> NotesHomeScreen(
-                uiState = uiState,
-                snackbarHostState = snackbarHostState,
-                onOpenSettings = { currentScreenName = AppScreen.Settings.name },
-                onOpenTodos = { currentScreenName = AppScreen.Todos.name },
-                onOpenNote = {
-                    editorStartsInEditMode = false
-                    editingNoteUri = it.documentUri.toString()
-                },
-                onCreateNote = {
-                    scope.launch {
-                        val created = viewModel.createNote()
-                        editorStartsInEditMode = true
-                        editingNoteUri = created?.documentUri?.toString()
-                    }
-                },
-                onRenameNote = viewModel::renameNote,
-                onMoveToTrash = { viewModel.moveToTrash(it) },
-                noteSortMode = uiState.noteSortMode,
-                onSortSelected = viewModel::setNoteSortMode,
-            )
-
-            AppScreen.Todos -> TodoScreen(
-                state = uiState,
-                viewModel = viewModel,
-                snackbar = snackbarHostState,
-                onNotes = { currentScreenName = AppScreen.Notes.name },
-            )
-
-            AppScreen.Settings -> SettingsScreen(
-                selectedFolderName = uiState.selectedFolderName,
-                themeMode = uiState.themeMode,
-                fontScale = uiState.fontScale,
-                onBack = { currentScreenName = AppScreen.Notes.name },
-                onPickFolder = { folderPicker.launch(null) },
-                onExport = viewModel::exportNotes,
-                onOpenTrash = { currentScreenName = AppScreen.Trash.name },
-                onThemeSelected = viewModel::setThemeMode,
-                onFontScaleSelected = viewModel::setFontScale,
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            AppScreen.Trash -> TrashScreen(
-                notes = uiState.trash,
-                isLoading = uiState.isLoading,
-                onBack = { currentScreenName = AppScreen.Settings.name },
-                onRestore = { viewModel.restoreFromTrash(it.documentUri.toString()) },
-                onDeletePermanently = { viewModel.deletePermanently(it.documentUri.toString()) },
-                modifier = Modifier.fillMaxSize(),
-            )
+        screenStateHolder.SaveableStateProvider(currentScreenName) {
+            when (currentScreen) {
+                AppScreen.Notes -> NotesHomeScreen(
+                    uiState = uiState,
+                    snackbarHostState = snackbarHostState,
+                    onOpenSettings = { currentScreenName = AppScreen.Settings.name },
+                    onOpenTodos = { currentScreenName = AppScreen.Todos.name },
+                    onOpenNote = {
+                        editorStartsInEditMode = false
+                        editingNoteUri = it.documentUri.toString()
+                    },
+                    onCreateNote = {
+                        scope.launch {
+                            val created = viewModel.createNote()
+                            editorStartsInEditMode = true
+                            editingNoteUri = created?.documentUri?.toString()
+                        }
+                    },
+                    onRenameNote = viewModel::renameNote,
+                    onMoveToTrash = { viewModel.moveToTrash(it) },
+                    noteSortMode = uiState.noteSortMode,
+                    onSortSelected = viewModel::setNoteSortMode,
+                )
+    
+                AppScreen.Todos -> TodoScreen(
+                    state = uiState,
+                    viewModel = viewModel,
+                    snackbar = snackbarHostState,
+                    onNotes = { currentScreenName = AppScreen.Notes.name },
+                )
+    
+                AppScreen.Settings -> SettingsScreen(
+                    selectedFolderName = uiState.selectedFolderName,
+                    themeMode = uiState.themeMode,
+                    fontScale = uiState.fontScale,
+                    onBack = { currentScreenName = AppScreen.Notes.name },
+                    onPickFolder = { folderPicker.launch(null) },
+                    onExport = viewModel::exportNotes,
+                    onOpenTrash = { currentScreenName = AppScreen.Trash.name },
+                    onThemeSelected = viewModel::setThemeMode,
+                    onFontScaleSelected = viewModel::setFontScale,
+                    modifier = Modifier.fillMaxSize(),
+                )
+    
+                AppScreen.Trash -> TrashScreen(
+                    notes = uiState.trash,
+                    isLoading = uiState.isLoading,
+                    onBack = { currentScreenName = AppScreen.Settings.name },
+                    onRestore = { viewModel.restoreFromTrash(it.documentUri.toString()) },
+                    onDeletePermanently = { viewModel.deletePermanently(it.documentUri.toString()) },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
@@ -888,12 +897,7 @@ private fun NoteEditorScreen(
         mutableStateOf<Int?>(if (startInEditMode) note.body.length else null)
     }
     var noteScrollY by rememberSaveable(note.documentUri.toString()) { mutableStateOf(0) }
-    val fixedMetaTextStyle = MaterialTheme.typography.labelLarge.let { style ->
-        style.copy(
-            fontSize = style.fontSize * (0.9f / fontScale),
-            lineHeight = style.lineHeight * (0.9f / fontScale),
-        )
-    }
+    var showNoteInfo by remember { mutableStateOf(false) }
 
     suspend fun saveIfNeeded(): Boolean = session.save(onSave)
 
@@ -932,10 +936,23 @@ private fun NoteEditorScreen(
             CenterAlignedTopAppBar(
                 colors = plainNotesTopAppBarColors(),
                 title = {
-                    Text(
-                        text = title.ifBlank { "Untitled" },
-                        modifier = Modifier.clickable { renameDialogOpen = true },
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable { renameDialogOpen = true })
+                        Text(
+                            text = when {
+                                isSaving -> "Saving…"
+                                session.saveFailed && session.isDirty -> "Not saved — Retry"
+                                session.isDirty -> "Unsaved changes"
+                                else -> "Saved"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (session.saveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable(enabled = session.isDirty && !isSaving) {
+                                scope.launch { saveIfNeeded() }
+                            },
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(
@@ -952,6 +969,9 @@ private fun NoteEditorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showNoteInfo = true }) {
+                        Icon(Icons.Rounded.Info, "Note information")
+                    }
                     IconButton(
                         onClick = {
                             confirmTrashDialogOpen = true
@@ -978,44 +998,6 @@ private fun NoteEditorScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = when {
-                            isSaving -> "Saving…"
-                            title != lastSavedTitle || body != lastSavedBody -> "Unsaved changes"
-                            else -> "Saved ${shortDateTime(lastSavedAt)}"
-                        },
-                        style = fixedMetaTextStyle,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "Created ${shortDateTime(createdAt)}",
-                        style = fixedMetaTextStyle,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.End,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
                     .weight(1f)
                     .background(MaterialTheme.colorScheme.background)
                     .padding(horizontal = 18.dp),
@@ -1038,6 +1020,13 @@ private fun NoteEditorScreen(
             }
         }
     }
+
+    if (showNoteInfo) AlertDialog(
+        onDismissRequest = { showNoteInfo = false },
+        title = { Text("Note information") },
+        text = { Text("Created ${shortDateTime(createdAt)}\nLast saved ${shortDateTime(lastSavedAt)}") },
+        confirmButton = { TextButton(onClick = { showNoteInfo = false }) { Text("Close") } },
+    )
 
     if (renameDialogOpen) {
         RenameDialog(
@@ -1153,4 +1142,5 @@ private fun shortDate(value: OffsetDateTime): String {
 private fun shortDateTime(value: OffsetDateTime): String {
     return value.format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
 }
+
 

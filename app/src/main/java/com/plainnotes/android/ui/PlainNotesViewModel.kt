@@ -65,6 +65,7 @@ data class PlainNotesUiState(
 class PlainNotesViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = NotesRepository(application)
     private val todoMutex = Mutex()
+    private val todoActions = TodoActionQueue(viewModelScope)
     private var editorSession: NoteEditorSession? = null
     private val _uiState = MutableStateFlow(PlainNotesUiState())
     val uiState: StateFlow<PlainNotesUiState> = _uiState.asStateFlow()
@@ -255,6 +256,10 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun enqueueTodoChange(change: (List<TodoItem>) -> List<TodoItem>) {
+        todoActions.submit { changeTodos(change) }
+    }
+
     suspend fun changeTodos(change: (List<TodoItem>) -> List<TodoItem>): Boolean = withContext(NonCancellable) {
         todoMutex.withLock {
             if (!_uiState.value.todosLoaded) return@withLock false
@@ -355,4 +360,5 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 }
+
 
