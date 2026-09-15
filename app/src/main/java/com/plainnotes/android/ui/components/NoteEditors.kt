@@ -115,7 +115,10 @@ fun NoteBodyEditor(
                 isCursorVisible = true
                 showSoftInputOnFocus = true
                 imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
-                post { scrollTo(0, initialScrollY) }
+                post {
+                    setSelection((requestedSelection ?: 0).coerceIn(0, text?.length ?: 0))
+                    scrollTo(0, initialScrollY)
+                }
                 inputType = InputType.TYPE_CLASS_TEXT or
                     InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                     InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
