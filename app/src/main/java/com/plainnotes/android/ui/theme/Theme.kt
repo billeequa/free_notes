@@ -109,6 +109,10 @@ fun PlainNotesTheme(
 ) {
     val typography = scaledTypography(fontScale)
     val colorScheme = when (themeMode) {
+        ThemeMode.SNOW -> lightColorScheme(primary = Color(0xFF315DA8), background = Color.White, surface = Color.White)
+        ThemeMode.ROSE -> lightColorScheme(primary = Color(0xFF98455E), background = Color(0xFFFFF4F5), surface = Color(0xFFFFF4F5))
+        ThemeMode.LAVENDER -> lightColorScheme(primary = Color(0xFF66509B), background = Color(0xFFF6F2FF), surface = Color(0xFFF6F2FF))
+        ThemeMode.AMOLED -> darkColorScheme(primary = Color(0xFFB9C5FF), background = Color.Black, surface = Color.Black)
         ThemeMode.LIGHT -> LightColors
         ThemeMode.LIGHT_2 -> LightColors2
         ThemeMode.LIGHT_3 -> LightColors3
@@ -117,6 +121,7 @@ fun PlainNotesTheme(
         ThemeMode.DARK_3 -> DarkColors3
     }
     val chromeColors = when (themeMode) {
+        ThemeMode.SNOW, ThemeMode.ROSE, ThemeMode.LAVENDER, ThemeMode.AMOLED -> PlainNotesChromeColors(colorScheme.surface, colorScheme.onSurface)
         ThemeMode.LIGHT -> PlainNotesChromeColors(
             topAppBarContainer = LightColors.surface,
             topAppBarContent = LightColors.onSurface,
@@ -177,3 +182,4 @@ private fun scaledTypography(scale: Float): Typography {
         labelMedium = TextStyle(fontFamily = FontFamily.Default, fontSize = size(13f), lineHeight = size(17f)),
     )
 }
+
