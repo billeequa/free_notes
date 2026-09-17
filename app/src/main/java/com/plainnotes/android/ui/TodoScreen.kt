@@ -39,11 +39,14 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
 @Composable
-fun HomeTabs(todoSelected: Boolean, onNotes: () -> Unit, onTodos: () -> Unit) {
+fun HomeTabs(todoSelected: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, actions: @Composable () -> Unit = {}) {
     Column(Modifier.statusBarsPadding()) {
-        TabRow(selectedTabIndex = if (todoSelected) 1 else 0) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+        TabRow(selectedTabIndex = if (todoSelected) 1 else 0, modifier = Modifier.weight(1f)) {
             Tab(selected = !todoSelected, onClick = onNotes, text = { Text("Notes") })
             Tab(selected = todoSelected, onClick = onTodos, text = { Text("To-do") })
+        }
+        actions()
         }
     }
 }
@@ -88,9 +91,8 @@ fun TodoScreen(
     }
     Scaffold(
         topBar = {
-            Column {
-                HomeTabs(true, onNotes, {})
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+            HomeTabs(true, onNotes, {}) {
+                Box {
                     TextButton(onClick = { filterMenu = true }) { Text("$filter ▾") }
                     DropdownMenu(expanded = filterMenu, onDismissRequest = { filterMenu = false }) {
                         listOf("All", "Open", "Completed", "Flagged").forEach { label ->

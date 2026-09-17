@@ -211,7 +211,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     fontScale = uiState.fontScale,
                     onBack = { currentScreenName = AppScreen.Notes.name },
                     onPickFolder = { folderPicker.launch(null) },
-                                        onOpenTrash = { currentScreenName = AppScreen.Trash.name },
+                    onOpenTrash = { currentScreenName = AppScreen.Trash.name },
                     onThemeSelected = viewModel::setThemeMode,
                     onFontScaleSelected = viewModel::setFontScale,
                     modifier = Modifier.fillMaxSize(),
