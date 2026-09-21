@@ -11,14 +11,29 @@ android {
         applicationId = "com.plainnotes.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
+        val updateRepository = providers.gradleProperty("updateRepository").orElse("billeequa/free_notes").get()
+        require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(updateRepository))
+        buildConfigField("String", "UPDATE_REPOSITORY", "\"$updateRepository\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (System.getenv("JNOTES_KEYSTORE") != null) {
+            create("distribution") {
+                storeFile = file(System.getenv("JNOTES_KEYSTORE"))
+                storePassword = System.getenv("JNOTES_STORE_PASSWORD")
+                keyAlias = System.getenv("JNOTES_KEY_ALIAS")
+                keyPassword = System.getenv("JNOTES_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("distribution")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -35,6 +50,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -68,5 +84,6 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
 
 

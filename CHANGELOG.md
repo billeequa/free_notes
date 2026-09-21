@@ -1,3 +1,7 @@
+# 1.3
+
+Compact editor, ten themes, swipe tabs, simplified task cards and filters, conditional timestamps, and validated APK updates. Existing task format preserved; rollback omitted. See releases/NOTES.md.
+
 # Changelog
 
 ## v1
@@ -10,3 +14,4 @@
 - Trash, restore, permanent-delete confirmation, and ZIP export
 - Multiple themes, font sizes, and note sorting
 - Installable APK at `releases/jnotes_v1.apk`
+

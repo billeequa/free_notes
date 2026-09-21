@@ -3,6 +3,10 @@ package com.plainnotes.android.ui
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -105,6 +109,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var editingNoteUri by rememberSaveable { mutableStateOf<String?>(null) }
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
+    val pagerState = rememberPagerState { 2 }
     val folderPicker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
         uri?.let {
             screenStateHolder.removeState(AppScreen.Notes.name)
@@ -129,7 +134,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 AppScreen.Settings -> BackHandler { currentScreenName = AppScreen.Notes.name }
                 AppScreen.Trash -> BackHandler { currentScreenName = AppScreen.Settings.name }
                 AppScreen.Todos -> BackHandler { currentScreenName = AppScreen.Notes.name }
-                AppScreen.Notes -> Unit
+                AppScreen.Notes -> if (pagerState.currentPage == 1) BackHandler { scope.launch { pagerState.animateScrollToPage(0) } }
             }
         }
 
@@ -165,11 +170,16 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
 
         screenStateHolder.SaveableStateProvider(currentScreenName) {
             when (currentScreen) {
-                AppScreen.Notes -> NotesHomeScreen(
+                AppScreen.Notes, AppScreen.Todos -> HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    beyondViewportPageCount = 1,
+                ) { page ->
+                    if (page == 0) NotesHomeScreen(
                     uiState = uiState,
                     snackbarHostState = snackbarHostState,
                     onOpenSettings = { currentScreenName = AppScreen.Settings.name },
-                    onOpenTodos = { currentScreenName = AppScreen.Todos.name },
+                    onOpenTodos = { scope.launch { pagerState.animateScrollToPage(1) } },
                     onOpenNote = {
                         editorStartsInEditMode = false
                         editingNoteUri = it.documentUri.toString()
@@ -187,12 +197,13 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     onSortSelected = viewModel::setNoteSortMode,
                 )
     
-                AppScreen.Todos -> TodoScreen(
+                else TodoScreen(
                     state = uiState,
                     viewModel = viewModel,
                     snackbar = snackbarHostState,
-                    onNotes = { currentScreenName = AppScreen.Notes.name },
+                    onNotes = { scope.launch { pagerState.animateScrollToPage(0) } },
                 )
+                }
     
                 AppScreen.Settings -> SettingsScreen(
                     selectedFolderName = uiState.selectedFolderName,
@@ -200,7 +211,6 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     fontScale = uiState.fontScale,
                     onBack = { currentScreenName = AppScreen.Notes.name },
                     onPickFolder = { folderPicker.launch(null) },
-                    onExport = viewModel::exportNotes,
                     onOpenTrash = { currentScreenName = AppScreen.Trash.name },
                     onThemeSelected = viewModel::setThemeMode,
                     onFontScaleSelected = viewModel::setFontScale,
@@ -511,7 +521,6 @@ private fun SettingsScreen(
     fontScale: Float,
     onBack: () -> Unit,
     onPickFolder: () -> Unit,
-    onExport: () -> Unit,
     onOpenTrash: () -> Unit,
     onThemeSelected: (ThemeMode) -> Unit,
     onFontScaleSelected: (Float) -> Unit,
@@ -539,7 +548,7 @@ private fun SettingsScreen(
                 .padding(24.dp),
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 Text(
@@ -568,26 +577,8 @@ private fun SettingsScreen(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 ChoiceRow(
-                    options = listOf(
-                        "Light" to (themeMode == ThemeMode.LIGHT),
-                        "Light 2" to (themeMode == ThemeMode.LIGHT_2),
-                        "Light 3" to (themeMode == ThemeMode.LIGHT_3),
-                        "Dark theme 1" to (themeMode == ThemeMode.DARK_1),
-                        "Dark theme 2" to (themeMode == ThemeMode.DARK_2),
-                        "Dark theme 3" to (themeMode == ThemeMode.DARK_3),
-                    ),
-                    onSelected = { label ->
-                        onThemeSelected(
-                            when (label) {
-                                "Light" -> ThemeMode.LIGHT
-                                "Light 2" -> ThemeMode.LIGHT_2
-                                "Light 3" -> ThemeMode.LIGHT_3
-                                "Dark theme 2" -> ThemeMode.DARK_2
-                                "Dark theme 3" -> ThemeMode.DARK_3
-                                else -> ThemeMode.DARK_1
-                            },
-                        )
-                    },
+                    options = ThemeMode.entries.map { it.label to (themeMode == it) },
+                    onSelected = { label -> onThemeSelected(ThemeMode.entries.first { it.label == label }) },
                 )
                 HorizontalDivider()
                 Text(
@@ -617,9 +608,8 @@ private fun SettingsScreen(
                     },
                 )
                 HorizontalDivider()
-                Button(onClick = onExport, modifier = Modifier.fillMaxWidth()) {
-                    Text("Export zip")
-                }
+                Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodyMedium)
+                UpdateSettings()
                 Button(onClick = onOpenTrash, modifier = Modifier.fillMaxWidth()) {
                     Text("Open trash")
                 }
@@ -935,11 +925,12 @@ private fun NoteEditorScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 colors = plainNotesTopAppBarColors(),
+                expandedHeight = 48.dp,
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(title.ifBlank { "Untitled" }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        Text(title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.clickable { renameDialogOpen = true })
-                        Text(
+                        if (isSaving || session.isDirty) Text(
                             text = when {
                                 isSaving -> "Saving…"
                                 session.saveFailed && session.isDirty -> "Not saved — Retry"
@@ -1142,5 +1133,6 @@ private fun shortDate(value: OffsetDateTime): String {
 private fun shortDateTime(value: OffsetDateTime): String {
     return value.format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
 }
+
 
 

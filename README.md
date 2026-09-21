@@ -2,7 +2,7 @@
 
 Jnotes is a small, ad-free Android notes app built around ordinary UTF-8 text files. It has no account, cloud service, database, analytics, or advertising SDK. The user chooses a folder, and that folder remains the source of truth.
 
-The `main` release baseline is **v1**. The installable APK is available at [`releases/jnotes_v1.apk`](releases/jnotes_v1.apk).
+The next release is **1.3**. See [release notes](releases/NOTES.md) and [update/signing setup](docs/UPDATES.md).
 
 ## Features
 
@@ -15,8 +15,8 @@ The `main` release baseline is **v1**. The installable APK is available at [`rel
 - Title-based filenames with stable creation timestamps
 - Open links from the native text-selection menu, with confirmation before opening
 - Trash, restore, and confirmed permanent deletion
-- Timestamped ZIP export of active notes
-- Six font sizes, three light themes, and three dark themes
+- Automatic writes to the selected notes folder
+- Six font sizes and ten themes, including OLED black
 - Sorting by creation or modification time
 - Forgiving parsing for manually edited and older note files
 
@@ -63,7 +63,8 @@ The debug APK will be written to `app/build/outputs/apk/debug/app-debug.apk`. Re
 
 ## Privacy
 
-Jnotes does not require internet access to create, read, edit, delete, or export notes. A browser intent is used only when the user confirms opening a link.
+Jnotes does not require internet access to create, read, edit, delete, or export notes. Update checks use GitHub only when requested in Settings. Private release downloads can use the signed-in browser. No note content is sent.
 
 
 See [device verification](docs/DEVICE_TESTING.md) for the Pixel 4a 5G regression checklist.
+

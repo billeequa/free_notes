@@ -20,13 +20,17 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class ThemeMode(val storageValue: String) {
-    LIGHT("light"),
-    LIGHT_2("light_2"),
-    LIGHT_3("light_3"),
-    DARK_1("dark_1"),
-    DARK_2("dark_2"),
-    DARK_3("dark_3");
+enum class ThemeMode(val storageValue: String, val label: String) {
+    LIGHT("light", "Paper"),
+    LIGHT_2("light_2", "Sunshine"),
+    LIGHT_3("light_3", "Sage"),
+    DARK_1("dark_1", "Forest"),
+    DARK_2("dark_2", "Charcoal"),
+    DARK_3("dark_3", "Midnight"),
+    SNOW("snow", "Snow"),
+    ROSE("rose", "Rose"),
+    LAVENDER("lavender", "Lavender"),
+    AMOLED("amoled", "OLED black");
 
     companion object {
         fun fromStorage(value: String): ThemeMode {
@@ -360,5 +364,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 }
+
 
 

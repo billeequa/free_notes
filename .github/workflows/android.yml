@@ -2,7 +2,7 @@ name: Android build and tests
 on:
   pull_request:
   push:
-    branches: [main, codex/editor-fixes-and-todos]
+    branches: [main, codex/editor-fixes-and-todos, codex/version-1.3]
 permissions:
   contents: read
 jobs:
@@ -20,13 +20,22 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - name: Test and build
-        run: bash gradlew testDebugUnitTest assembleDebug
+        run: bash gradlew testDebugUnitTest assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: jnotes-debug
           path: app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
+        with:
+          name: jnotes-unsigned-release
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-signing-tool
+          path: ${{ env.ANDROID_HOME }}/build-tools/36.0.0/lib/apksigner.jar
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
           path: app/build/reports/tests/testDebugUnitTest
+

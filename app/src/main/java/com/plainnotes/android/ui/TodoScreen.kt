@@ -2,6 +2,8 @@ package com.plainnotes.android.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -37,11 +39,14 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
 @Composable
-fun HomeTabs(todoSelected: Boolean, onNotes: () -> Unit, onTodos: () -> Unit) {
+fun HomeTabs(todoSelected: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, actions: @Composable () -> Unit = {}) {
     Column(Modifier.statusBarsPadding()) {
-        TabRow(selectedTabIndex = if (todoSelected) 1 else 0) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+        TabRow(selectedTabIndex = if (todoSelected) 1 else 0, modifier = Modifier.weight(1f)) {
             Tab(selected = !todoSelected, onClick = onNotes, text = { Text("Notes") })
             Tab(selected = todoSelected, onClick = onTodos, text = { Text("To-do") })
+        }
+        actions()
         }
     }
 }
@@ -58,10 +63,11 @@ fun TodoScreen(
     val allItems = state.todos.sortedBy { it.addedAt.toInstant() }
     var filter by rememberSaveable { mutableStateOf("All") }
     val items = allItems.filter {
-        when (filter) { "Open" -> it.completedAt == null; "Flagged" -> it.flagged; else -> true }
+        when (filter) { "Open" -> it.completedAt == null; "Completed" -> it.completedAt != null; "Flagged" -> it.flagged; else -> true }
     }
     val listState = rememberLazyListState()
     var positioned by rememberSaveable { mutableStateOf(false) }
+    var filterMenu by remember { mutableStateOf(false) }
     var menuId by remember { mutableStateOf<String?>(null) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var creating by rememberSaveable { mutableStateOf(false) }
@@ -85,20 +91,22 @@ fun TodoScreen(
     }
     Scaffold(
         topBar = {
-            Column {
-                HomeTabs(true, onNotes, {})
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("All" to allItems.size, "Open" to allItems.count { it.completedAt == null },
-                            "Flagged" to allItems.count { it.flagged }).forEach { (label, count) ->
-                            FilterChip(selected = filter == label, onClick = {
+            HomeTabs(true, onNotes, {}) {
+                Box {
+                    TextButton(onClick = { filterMenu = true }) { Text("$filter ▾") }
+                    DropdownMenu(expanded = filterMenu, onDismissRequest = { filterMenu = false }) {
+                        listOf("All", "Open", "Completed", "Flagged").forEach { label ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = {
                                 filter = label
+                                filterMenu = false
                                 scope.launch { listState.scrollToItem(0) }
-                            }, label = { Text("$label · $count") })
+                            })
                         }
-                    }
-                    IconButton(onClick = { jumpToLatest() }) {
-                        Icon(Icons.Rounded.VerticalAlignBottom, "Jump to latest unfinished task")
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text("Jump to latest") }, onClick = {
+                            filterMenu = false
+                            jumpToLatest()
+                        })
                     }
                 }
             }
@@ -135,6 +143,7 @@ fun TodoScreen(
                     })
                     SwipeToDismissBox(
                         state = swipe,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)),
                         enableDismissFromStartToEnd = !done,
                         enableDismissFromEndToStart = false,
                         backgroundContent = {
@@ -147,7 +156,7 @@ fun TodoScreen(
                             onClick = { editingId = item.id },
                             onLongClick = { menuId = item.id },
                         )) {
-                            Column(Modifier.padding(16.dp)) {
+                            Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 val color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = done, onCheckedChange = { checked ->
@@ -162,14 +171,11 @@ fun TodoScreen(
                                     color = color,
                                     textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
                                 )
-                                    IconButton(onClick = { menuId = item.id }) {
-                                        Icon(Icons.Rounded.MoreVert, "Actions for ${item.title}")
-                                    }
+
                                 }
                                 if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.height(6.dp))
-                                Text("added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("completed: ${item.completedAt?.let(::todoTimestamp) ?: "—"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 DropdownMenu(expanded = menuId == item.id, onDismissRequest = { menuId = null }) {
                                     DropdownMenuItem(text = { Text("Edit") }, onClick = { menuId = null; editingId = item.id })
                                     DropdownMenuItem(text = { Text(if (item.flagged) "Remove flag" else "Flag") }, onClick = {
@@ -296,4 +302,5 @@ private fun TodoEditDialog(
 
 private fun todoTimestamp(time: OffsetDateTime): String = time.atZoneSameInstant(ZoneId.systemDefault())
     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+
 

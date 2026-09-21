@@ -1,0 +1,68 @@
+name: Publish signed Jnotes release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['releases/current.json']
+permissions:
+  contents: write
+concurrency:
+  group: jnotes-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build with permanent signing key
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.JNOTES_KEYSTORE_BASE64 }}
+          JNOTES_KEYSTORE: ${{ runner.temp }}/jnotes-release.jks
+          JNOTES_STORE_PASSWORD: ${{ secrets.JNOTES_STORE_PASSWORD }}
+          JNOTES_KEY_ALIAS: ${{ secrets.JNOTES_KEY_ALIAS }}
+          JNOTES_KEY_PASSWORD: ${{ secrets.JNOTES_KEY_PASSWORD }}
+          UPDATE_REPOSITORY: ${{ vars.JNOTES_UPDATE_REPOSITORY || github.repository }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo 'Configure JNOTES signing secrets first. See docs/UPDATES.md.'; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$JNOTES_KEYSTORE"
+          trap 'rm -f "$JNOTES_KEYSTORE"' EXIT
+          bash gradlew testDebugUnitTest assembleRelease -PupdateRepository="$UPDATE_REPOSITORY"
+          python3 - <<'PY'
+          import json, pathlib, shutil, hashlib
+          root = pathlib.Path('app/build/outputs/apk/release')
+          data = json.loads((root / 'output-metadata.json').read_text())['elements'][0]
+          file = f"jnotes-{data['versionCode']}.apk"
+          shutil.copyfile(root / data['outputFile'], pathlib.Path('releases') / file)
+          artifact = pathlib.Path('releases') / file
+          pathlib.Path('releases/current.json').write_text(json.dumps(dict(version=data['versionName'], versionCode=data['versionCode'], file=file, sha256=hashlib.sha256(artifact.read_bytes()).hexdigest())))
+          PY
+      - name: Verify and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, re, subprocess, os
+          metadata = json.loads(pathlib.Path('releases/current.json').read_text())
+          code = int(metadata['versionCode'])
+          assert code > 0
+          assert metadata['file'] == f'jnotes-{code}.apk'
+          assert re.fullmatch(r'[0-9]+(?:\.[0-9]+)*', metadata['version'])
+          apk = pathlib.Path('releases') / metadata['file']
+          assert hashlib.sha256(apk.read_bytes()).hexdigest() == metadata['sha256']
+          subprocess.run([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/apksigner', 'verify', '--verbose', str(apk)], check=True)
+          badging = subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/aapt', 'dump', 'badging', str(apk)], text=True)
+          assert "name='com.plainnotes.android'" in badging.splitlines()[0]
+          assert f"versionCode='{code}'" in badging.splitlines()[0]
+          subprocess.run(['gh', 'release', 'create', 'v'+metadata['version'], str(apk), '--target', os.environ['GITHUB_SHA'], '--title', 'Jnotes '+metadata['version'], '--notes-file', 'releases/NOTES.md'], check=True)
+          PY
