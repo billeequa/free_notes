@@ -1,5 +1,10 @@
 package com.plainnotes.android.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
@@ -96,7 +101,7 @@ fun TodoScreen(
     LaunchedEffect(Unit) { viewModel.loadTodos() }
     LaunchedEffect(state.todosLoaded, filter) {
         if (state.todosLoaded && !positioned) {
-            val index = if (filter == "Normal") completed.size else 0
+            val index = if (filter == "Normal" && allItems.isNotEmpty()) completed.size + 1 else 0
             if (index >= 0) listState.scrollToItem(index)
             positioned = true
         }
@@ -106,15 +111,48 @@ fun TodoScreen(
         todos.map { if (it.id == id && it.completedAt == null) it.copy(completedAt = OffsetDateTime.now()) else it }
     }
     fun jumpToLatest() {
-        val index = if (filter == "Normal") completed.size else 0
+        val index = if (filter == "Normal" && allItems.isNotEmpty()) completed.size + 1 else 0
         if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
     }
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            if (state.todosLoaded) FloatingActionButton(onClick = { newTaskId = java.util.UUID.randomUUID().toString(); creating = true }) {
+                Icon(Icons.Rounded.Add, "Add to-do")
+            }
+        },
+    ) { padding ->
+        when {
+            state.todoError != null -> Column(Modifier.padding(padding).padding(24.dp)) {
+                Text(state.todoError)
+                TextButton(onClick = viewModel::loadTodos) { Text("Retry") }
+            }
+            !state.todosLoaded -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val viewportHeight = maxHeight
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
+                    var distance = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { distance = 0f },
+                        onDragEnd = { if (distance > 56.dp.toPx()) { revealedId = null; onNotes() } },
+                        onHorizontalDrag = { change, amount -> change.consume(); distance += amount },
+                    )
+                },
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "filter-header") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("View", style = MaterialTheme.typography.labelLarge)
                 Box {
-                    TextButton(onClick = { filterMenu = true }) { Text("$filter ▾") }
+                    Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.clickable { filterMenu = true }) {
+                        Text(filter, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                    }
                     DropdownMenu(expanded = filterMenu, onDismissRequest = { filterMenu = false }) {
                         listOf("Normal", "All", "Open", "Completed", "Flagged").forEach { label ->
                             DropdownMenuItem(text = { Text(label) }, onClick = {
@@ -132,47 +170,40 @@ fun TodoScreen(
                     }
                 }
             }
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            if (state.todosLoaded) FloatingActionButton(onClick = { newTaskId = java.util.UUID.randomUUID().toString(); creating = true }) {
-                Icon(Icons.Rounded.Add, "Add to-do")
-            }
-        },
-    ) { padding ->
-        when {
-            state.todoError != null -> Column(Modifier.padding(padding).padding(24.dp)) {
-                Text(state.todoError)
-                TextButton(onClick = viewModel::loadTodos) { Text("Retry") }
-            }
-            !state.todosLoaded -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-            items.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(if (allItems.isEmpty()) "Tap + to add your first to-do." else "No ${filter.lowercase()} tasks.")
-            }
-            else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
-            val viewportHeight = maxHeight
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 88.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+                }
+                if (items.isEmpty()) item(key = "empty") {
+                    Text(if (allItems.isEmpty()) "Tap + to add your first to-do." else "No ${filter.lowercase()} tasks.", Modifier.padding(24.dp))
+                }
                 items(items, key = { it.id }) { item ->
                     val done = item.completedAt != null
                     val revealed = revealedId == item.id && !done
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        if (revealed) IconButton(
+                    val revealWidth = with(LocalDensity.current) { 64.dp.toPx() }
+                    var dragOffset by remember(item.id) { mutableStateOf<Float?>(null) }
+                    val settledOffset by animateFloatAsState(
+                        targetValue = dragOffset ?: if (revealed) -revealWidth else 0f,
+                        animationSpec = tween(if (dragOffset != null) 0 else 160), label = "completion reveal",
+                    )
+                    val offset = dragOffset ?: settledOffset
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))) {
+                        if (!done && offset < -1f) IconButton(
                             onClick = { revealedId = null; complete(item.id) },
-                            modifier = Modifier.size(56.dp).background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                            enabled = revealed,
+                            modifier = Modifier.align(Alignment.CenterEnd).size(56.dp)
+                                .graphicsLayer { alpha = (-offset / revealWidth).coerceIn(0f, 1f) }
+                                .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
                         ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
-                        Card(Modifier.weight(1f).todoGestures(
+                        Card(Modifier.fillMaxWidth().graphicsLayer { translationX = offset }.todoGestures(
                             onTap = { if (revealed) revealedId = null else editingId = item.id },
                             onMenu = { revealedId = null; menuId = item.id },
-                            onReveal = { revealedId = if (done) null else item.id },
-                            onClose = { revealedId = null },
-                            onBack = { revealedId = null; onNotes() },
+                            onDragStart = { dragOffset = settledOffset },
+                            onDrag = { amount -> if (!done) dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(-revealWidth, 0f) },
+                            onDragEnd = { distance ->
+                                if (distance >= revealWidth) { revealedId = null; onNotes() }
+                                else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
+                                else revealedId = null
+                                dragOffset = null
+                            },
+                            onDragCancel = { dragOffset = null },
                         )) {
                             Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 val color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
@@ -237,7 +268,7 @@ fun TodoScreen(
                 editingId = null
                 if (original == null) {
                     filter = "Normal"
-                    scope.launch { listState.animateScrollToItem(state.todos.size) }
+                    scope.launch { listState.animateScrollToItem(state.todos.size + 1) }
                 }
             }
             saved
@@ -334,41 +365,29 @@ private fun todoTimestamp(time: OffsetDateTime): String = time.atZoneSameInstant
 
 
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun Modifier.todoGestures(
-    onTap: () -> Unit, onMenu: () -> Unit, onReveal: () -> Unit,
-    onClose: () -> Unit, onBack: () -> Unit,
-): Modifier = semantics {
-    onClick("Edit task") { onTap(); true }
-    onLongClick("Task actions") { onMenu(); true }
-}.pointerInput(onTap, onMenu, onReveal, onClose, onBack) {
-    awaitEachGesture {
-        val down = awaitFirstDown()
-        var horizontal = false
-        var held = false
-        while (true) {
-            val event = awaitPointerEvent()
-            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            if (change.isConsumed || event.changes.count { it.pressed } > 1) break
-            val dx = change.position.x - down.position.x
-            val dy = change.position.y - down.position.y
-            if (!horizontal && (abs(dx) > viewConfiguration.touchSlop || abs(dy) > viewConfiguration.touchSlop)) {
-                if (abs(dy) >= abs(dx)) break
-                horizontal = true
-                held = change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis
-            }
-            if (horizontal) change.consume()
-            if (!change.pressed) {
-                if (horizontal) {
-                    if (held && dx >= 72.dp.toPx()) onBack()
-                    else if (!held && dx >= 32.dp.toPx()) onReveal()
-                    else if (!held && dx <= -32.dp.toPx()) onClose()
-                } else {
+    onTap: () -> Unit, onMenu: () -> Unit,
+    onDragStart: () -> Unit, onDrag: (Float) -> Unit,
+    onDragEnd: (Float) -> Unit, onDragCancel: () -> Unit,
+): Modifier {
+    val start by rememberUpdatedState(onDragStart)
+    val drag by rememberUpdatedState(onDrag)
+    val end by rememberUpdatedState(onDragEnd)
+    val cancel by rememberUpdatedState(onDragCancel)
+    return combinedClickable(onClick = onTap, onLongClick = onMenu)
+        .pointerInput(Unit) {
+            var distance = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { distance = 0f; start() },
+                onDragEnd = { end(distance) },
+                onDragCancel = { cancel() },
+                onHorizontalDrag = { change, amount ->
                     change.consume()
-                    if (change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) onMenu()
-                    else onTap()
-                }
-                break
-            }
+                    distance += amount
+                    drag(amount)
+                },
+            )
         }
-    }
 }

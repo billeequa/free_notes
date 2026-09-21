@@ -1157,11 +1157,11 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.3.1") },
+        title = { Text("What's new in 1.3.2") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Tap a task's checkbox or swipe it right to reveal the green check on the left. Tap that green check to confirm completion.")
-            Text("Normal view starts with open tasks. Scroll up for completed history, now gray without strikethrough.")
-            Text("The tab bar stays fixed. Tap or swipe across it to switch pages. On a task, hold first, then drag right to return to Notes; hold and release for its menu.")
+            Text("Swipe a task left or tap its checkbox to smoothly reveal the green check on the right. Tap the green check to confirm completion.")
+            Text("Normal view starts with open tasks. Scroll up for completed history and the View selector, now a scrolling header like Notes’ Sort by row. It never covers tasks.")
+            Text("Swipe right to return to Notes. Long-press a task for its edit and actions menu. The tab bar stays fixed.")
             Text("Updating: open Settings → Open GitHub Releases, sign in if asked, and download the newest APK. Open it and approve Update. Allow this download source to install apps if Android asks. Keep the existing app installed.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
