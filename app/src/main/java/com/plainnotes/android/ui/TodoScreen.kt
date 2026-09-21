@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import kotlin.math.abs
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.unit.dp
 import com.plainnotes.android.data.TodoItem
 import java.time.OffsetDateTime
@@ -45,7 +46,17 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun HomeTabs(todoSelected: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, actions: @Composable () -> Unit = {}) {
-    Column(Modifier.statusBarsPadding()) {
+    var tabDrag by remember { mutableStateOf(0f) }
+    Column(Modifier.statusBarsPadding().pointerInput(todoSelected) {
+        detectHorizontalDragGestures(
+            onDragStart = { tabDrag = 0f },
+            onDragEnd = {
+                if (tabDrag > 40.dp.toPx()) onNotes()
+                else if (tabDrag < -40.dp.toPx()) onTodos()
+            },
+            onHorizontalDrag = { change, amount -> change.consume(); tabDrag += amount },
+        )
+    }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
         TabRow(selectedTabIndex = if (todoSelected) 1 else 0, modifier = Modifier.weight(1f)) {
             Tab(selected = !todoSelected, onClick = onNotes, text = { Text("Notes") })
@@ -99,8 +110,9 @@ fun TodoScreen(
         if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
     }
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            HomeTabs(true, onNotes, {}) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Box {
                     TextButton(onClick = { filterMenu = true }) { Text("$filter ▾") }
                     DropdownMenu(expanded = filterMenu, onDismissRequest = { filterMenu = false }) {
@@ -165,6 +177,14 @@ fun TodoScreen(
                             Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 val color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = done,
+                                        onCheckedChange = {
+                                            if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
+                                            else revealedId = item.id
+                                        },
+                                        modifier = Modifier.semantics { contentDescription = if (done) "Reopen: ${item.title}" else "Show completion confirmation: ${item.title}" },
+                                    )
                                 Text(
                                     modifier = Modifier.weight(1f),
                                     text = "${if (item.flagged) "⚑ " else ""}${item.title}",

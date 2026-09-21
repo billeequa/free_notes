@@ -138,6 +138,8 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
             }
         }
 
+        PatchNotesPopup()
+
         if (!uiState.hasLoadedStorageConfig) {
             CenterLoading(Modifier.fillMaxSize())
             return@PlainNotesTheme
@@ -170,9 +172,13 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
 
         screenStateHolder.SaveableStateProvider(currentScreenName) {
             when (currentScreen) {
-                AppScreen.Notes, AppScreen.Todos -> HorizontalPager(
+                AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
+                    HomeTabs(pagerState.currentPage == 1,
+                        { scope.launch { pagerState.animateScrollToPage(0) } },
+                        { scope.launch { pagerState.animateScrollToPage(1) } })
+                    HorizontalPager(
                     state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f),
                     beyondViewportPageCount = 1,
                     userScrollEnabled = pagerState.currentPage == 0,
                 ) { page ->
@@ -206,6 +212,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 )
                 }
     
+                }
                 AppScreen.Settings -> SettingsScreen(
                     selectedFolderName = uiState.selectedFolderName,
                     themeMode = uiState.themeMode,
@@ -277,7 +284,7 @@ private fun NotesHomeScreen(
     onSortSelected: (NoteSortMode) -> Unit,
 ) {
     Scaffold(
-        topBar = { HomeTabs(false, {}, onOpenTodos) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Box(
@@ -1137,3 +1144,26 @@ private fun shortDateTime(value: OffsetDateTime): String {
 
 
 
+
+@Composable
+private fun PatchNotesPopup() {
+    val context = LocalContext.current
+    val preferences = remember { context.getSharedPreferences("release-notes", android.content.Context.MODE_PRIVATE) }
+    val version = com.plainnotes.android.BuildConfig.VERSION_CODE
+    var visible by remember { mutableStateOf(preferences.getInt("seen-version", 0) < version) }
+    fun dismiss() {
+        preferences.edit().putInt("seen-version", version).apply()
+        visible = false
+    }
+    if (visible) AlertDialog(
+        onDismissRequest = { dismiss() },
+        title = { Text("What's new in 1.3.1") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Tap a task's checkbox or swipe it right to reveal the green check on the left. Tap that green check to confirm completion.")
+            Text("Normal view starts with open tasks. Scroll up for completed history, now gray without strikethrough.")
+            Text("The tab bar stays fixed. Tap or swipe across it to switch pages. On a task, hold first, then drag right to return to Notes; hold and release for its menu.")
+            Text("Updating: open Settings → Open GitHub Releases, sign in if asked, and download the newest APK. Open it and approve Update. Allow this download source to install apps if Android asks. Keep the existing app installed.")
+        } },
+        confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
+    )
+}
