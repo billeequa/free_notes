@@ -30,7 +30,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import kotlin.math.abs
 import androidx.compose.ui.unit.dp
 import com.plainnotes.android.data.TodoItem
 import java.time.OffsetDateTime
@@ -61,11 +66,15 @@ fun TodoScreen(
 ) {
     val scope = rememberCoroutineScope()
     val allItems = state.todos.sortedBy { it.addedAt.toInstant() }
-    var filter by rememberSaveable { mutableStateOf("All") }
-    val items = allItems.filter {
+    var filter by rememberSaveable { mutableStateOf("Normal") }
+    val filteredItems = allItems.filter {
         when (filter) { "Open" -> it.completedAt == null; "Completed" -> it.completedAt != null; "Flagged" -> it.flagged; else -> true }
     }
+    val completed = allItems.filter { it.completedAt != null }.sortedBy { it.completedAt!!.toInstant() }
+    val open = allItems.filter { it.completedAt == null }
+    val items = if (filter == "Normal") completed + open else filteredItems
     val listState = rememberLazyListState()
+    var revealedId by remember { mutableStateOf<String?>(null) }
     var positioned by rememberSaveable { mutableStateOf(false) }
     var filterMenu by remember { mutableStateOf(false) }
     var menuId by remember { mutableStateOf<String?>(null) }
@@ -74,9 +83,9 @@ fun TodoScreen(
     var newTaskId by rememberSaveable { mutableStateOf(java.util.UUID.randomUUID().toString()) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { viewModel.loadTodos() }
-    LaunchedEffect(state.todosLoaded) {
+    LaunchedEffect(state.todosLoaded, filter) {
         if (state.todosLoaded && !positioned) {
-            val index = items.indexOfLast { it.completedAt == null }.takeIf { it >= 0 } ?: items.lastIndex
+            val index = if (filter == "Normal") completed.size else 0
             if (index >= 0) listState.scrollToItem(index)
             positioned = true
         }
@@ -86,7 +95,7 @@ fun TodoScreen(
         todos.map { if (it.id == id && it.completedAt == null) it.copy(completedAt = OffsetDateTime.now()) else it }
     }
     fun jumpToLatest() {
-        val index = items.indexOfLast { it.completedAt == null }.takeIf { it >= 0 } ?: items.lastIndex
+        val index = if (filter == "Normal") completed.size else 0
         if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
     }
     Scaffold(
@@ -95,15 +104,16 @@ fun TodoScreen(
                 Box {
                     TextButton(onClick = { filterMenu = true }) { Text("$filter ▾") }
                     DropdownMenu(expanded = filterMenu, onDismissRequest = { filterMenu = false }) {
-                        listOf("All", "Open", "Completed", "Flagged").forEach { label ->
+                        listOf("Normal", "All", "Open", "Completed", "Flagged").forEach { label ->
                             DropdownMenuItem(text = { Text(label) }, onClick = {
+                                positioned = false
+                                revealedId = null
                                 filter = label
                                 filterMenu = false
-                                scope.launch { listState.scrollToItem(0) }
                             })
                         }
                         HorizontalDivider()
-                        DropdownMenuItem(text = { Text("Jump to latest") }, onClick = {
+                        DropdownMenuItem(text = { Text("Jump to open items") }, onClick = {
                             filterMenu = false
                             jumpToLatest()
                         })
@@ -129,49 +139,40 @@ fun TodoScreen(
             items.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text(if (allItems.isEmpty()) "Tap + to add your first to-do." else "No ${filter.lowercase()} tasks.")
             }
-            else -> LazyColumn(
+            else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val viewportHeight = maxHeight
+            LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 0.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(items, key = { it.id }) { item ->
                     val done = item.completedAt != null
-                    val swipe = rememberSwipeToDismissBoxState(confirmValueChange = { value ->
-                        if (value == SwipeToDismissBoxValue.StartToEnd && !done) complete(item.id)
-                        false // Completion keeps the row in the timeline.
-                    })
-                    SwipeToDismissBox(
-                        state = swipe,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp)),
-                        enableDismissFromStartToEnd = !done,
-                        enableDismissFromEndToStart = false,
-                        backgroundContent = {
-                            Box(Modifier.fillMaxSize().background(Color(0xFF208447)).padding(20.dp), contentAlignment = Alignment.CenterStart) {
-                                Icon(Icons.Rounded.Check, "Complete", tint = Color.White)
-                            }
-                        },
-                    ) {
-                        Card(Modifier.fillMaxWidth().combinedClickable(
-                            onClick = { editingId = item.id },
-                            onLongClick = { menuId = item.id },
+                    val revealed = revealedId == item.id && !done
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (revealed) IconButton(
+                            onClick = { revealedId = null; complete(item.id) },
+                            modifier = Modifier.size(56.dp).background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                        ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
+                        Card(Modifier.weight(1f).todoGestures(
+                            onTap = { if (revealed) revealedId = null else editingId = item.id },
+                            onMenu = { revealedId = null; menuId = item.id },
+                            onReveal = { revealedId = if (done) null else item.id },
+                            onClose = { revealedId = null },
+                            onBack = { revealedId = null; onNotes() },
                         )) {
                             Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 val color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = done, onCheckedChange = { checked ->
-                                        change { todos -> todos.map { todo ->
-                                            if (todo.id == item.id) todo.copy(completedAt = if (checked) todo.completedAt ?: OffsetDateTime.now() else null) else todo
-                                        } }
-                                    }, modifier = Modifier.semantics { contentDescription = "Completion: ${item.title}" })
                                 Text(
                                     modifier = Modifier.weight(1f),
                                     text = "${if (item.flagged) "⚑ " else ""}${item.title}",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = color,
-                                    textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
                                 )
 
+                                    IconButton(onClick = { menuId = item.id }) { Icon(Icons.Rounded.MoreVert, "Task actions") }
                                 }
                                 if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.height(6.dp))
@@ -182,9 +183,10 @@ fun TodoScreen(
                                         menuId = null
                                         change { todos -> todos.map { if (it.id == item.id) it.copy(flagged = !it.flagged) else it } }
                                     })
-                                    DropdownMenuItem(text = { Text(if (done) "Mark incomplete" else "Complete") }, onClick = {
+                                    DropdownMenuItem(text = { Text(if (done) "Mark incomplete" else "Show completion check") }, onClick = {
                                         menuId = null
-                                        change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = if (done) null else OffsetDateTime.now()) else it } }
+                                        if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
+                                        else revealedId = item.id
                                     })
                                     DropdownMenuItem(text = { Text("Delete") }, onClick = { menuId = null; deleteId = item.id })
                                 }
@@ -192,6 +194,13 @@ fun TodoScreen(
                         }
                     }
                 }
+                if (filter == "Normal") {
+                    if (open.isEmpty()) item(key = "open-empty") {
+                        Text("No open tasks. Scroll up for completed tasks.", Modifier.padding(16.dp))
+                    }
+                    item(key = "normal-space") { Spacer(Modifier.height(viewportHeight)) }
+                }
+            }
             }
         }
     }
@@ -207,7 +216,7 @@ fun TodoScreen(
                 creating = addAnother
                 editingId = null
                 if (original == null) {
-                    filter = "All"
+                    filter = "Normal"
                     scope.launch { listState.animateScrollToItem(state.todos.size) }
                 }
             }
@@ -304,3 +313,42 @@ private fun todoTimestamp(time: OffsetDateTime): String = time.atZoneSameInstant
     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
 
 
+
+private fun Modifier.todoGestures(
+    onTap: () -> Unit, onMenu: () -> Unit, onReveal: () -> Unit,
+    onClose: () -> Unit, onBack: () -> Unit,
+): Modifier = semantics {
+    onClick("Edit task") { onTap(); true }
+    onLongClick("Task actions") { onMenu(); true }
+}.pointerInput(onTap, onMenu, onReveal, onClose, onBack) {
+    awaitEachGesture {
+        val down = awaitFirstDown()
+        var horizontal = false
+        var held = false
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (change.isConsumed || event.changes.count { it.pressed } > 1) break
+            val dx = change.position.x - down.position.x
+            val dy = change.position.y - down.position.y
+            if (!horizontal && (abs(dx) > viewConfiguration.touchSlop || abs(dy) > viewConfiguration.touchSlop)) {
+                if (abs(dy) >= abs(dx)) break
+                horizontal = true
+                held = change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis
+            }
+            if (horizontal) change.consume()
+            if (!change.pressed) {
+                if (horizontal) {
+                    if (held && dx >= 72.dp.toPx()) onBack()
+                    else if (!held && dx >= 32.dp.toPx()) onReveal()
+                    else if (!held && dx <= -32.dp.toPx()) onClose()
+                } else {
+                    change.consume()
+                    if (change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) onMenu()
+                    else onTap()
+                }
+                break
+            }
+        }
+    }
+}

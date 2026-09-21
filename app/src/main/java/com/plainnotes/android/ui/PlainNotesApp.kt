@@ -174,6 +174,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
                     beyondViewportPageCount = 1,
+                    userScrollEnabled = pagerState.currentPage == 0,
                 ) { page ->
                     if (page == 0) NotesHomeScreen(
                     uiState = uiState,
