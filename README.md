@@ -2,7 +2,7 @@
 
 Jnotes is a small, ad-free Android notes app built around ordinary UTF-8 text files. It has no account, cloud service, database, analytics, or advertising SDK. The user chooses a folder, and that folder remains the source of truth.
 
-The next release is **1.3**. See [release notes](releases/NOTES.md) and [update/signing setup](docs/UPDATES.md).
+The current planned release is **1.3.3**. See [release notes](releases/NOTES.md) and [update/signing setup](docs/UPDATES.md).
 
 ## Features
 
@@ -67,4 +67,3 @@ Jnotes does not require internet access to create, read, edit, delete, or export
 
 
 See [device verification](docs/DEVICE_TESTING.md) for the Pixel 4a 5G regression checklist.
-
