@@ -48,7 +48,9 @@ class BookLibrary(private val context: Context) {
     suspend fun removeFolder(uri: Uri) {
         settings.removeBookFolder(uri)
         // Reader progression and metadata are retained if the folder is added again.
-        runCatching { context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        if (settings.rootFolderUri.first() != uri) {
+            runCatching { context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
     }
 
     suspend fun scan(): List<BookEntry> = withContext(Dispatchers.IO) {

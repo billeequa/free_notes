@@ -73,6 +73,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -358,7 +360,8 @@ private fun NotesHomeScreen(
                 onClick = onOpenDoubleX,
                 containerColor = MaterialTheme.colorScheme.secondary,
                 contentColor = MaterialTheme.colorScheme.onSecondary,
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 88.dp, bottom = 20.dp),
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 88.dp, bottom = 20.dp)
+                    .semantics { contentDescription = "Open today's Double X Day note" },
             ) {
                 Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
                     Text("X", modifier = Modifier.offset(x = (-4).dp), style = MaterialTheme.typography.titleMedium)
@@ -1236,7 +1239,7 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.4.0") },
+        title = { Text("What's new in 1.3.4") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Optional E Reader: turn on Show E Reader in Settings, add one or more books folders, and open EPUBs with remembered reading position.")
             Text("Optional Double X Day: enable it in Settings. Tap the overlapping X beside Settings to open today's note. After the seventh completed task, JNotes will offer to create it.")

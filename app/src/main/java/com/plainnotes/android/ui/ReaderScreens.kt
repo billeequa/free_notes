@@ -23,6 +23,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.plainnotes.android.reader.BookEntry
 import com.plainnotes.android.reader.BookLibrary
 import com.plainnotes.android.reader.EpubReaderActivity
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
 @Composable
@@ -82,7 +85,11 @@ fun ReaderLibraryScreen(onSettings: () -> Unit) {
                             Column(Modifier.padding(start = 12.dp)) {
                                 Text(book.title, style = MaterialTheme.typography.titleMedium)
                                 if (book.author.isNotBlank()) Text(book.author)
-                                Text(if (book.lastRead == 0L) "Not started" else "${(book.progress * 100).toInt()}% read",
+                                val lastRead = if (book.lastRead == 0L) "Not started" else {
+                                    val date = Instant.ofEpochMilli(book.lastRead).atZone(ZoneId.systemDefault())
+                                    "${(book.progress * 100).toInt()}% read · Last read ${date.format(DateTimeFormatter.ofPattern("MMM d, h:mm a"))}"
+                                }
+                                Text(lastRead,
                                     style = MaterialTheme.typography.labelMedium)
                             }
                         }

@@ -1,4 +1,4 @@
-Jnotes 1.4.0
+Jnotes 1.3.4
 
 - Optional EPUB reader using Readium, multiple persistent books folders, covers and metadata, contents navigation, and remembered reading position.
 - Optional Double X Day notes with a daily accomplishment list derived from completed To-Do items and a separate editable journal.

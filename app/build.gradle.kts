@@ -12,7 +12,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 8
-        versionName = "1.4.0"
+        versionName = "1.3.4"
         val updateRepository = providers.gradleProperty("updateRepository").orElse("billeequa/free_notes").get()
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(updateRepository))
         buildConfigField("String", "UPDATE_REPOSITORY", "\"$updateRepository\"")
@@ -90,4 +90,3 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
-
