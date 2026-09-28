@@ -200,7 +200,11 @@ fun TodoScreen(
                     val revealWidth = with(LocalDensity.current) { 64.dp.toPx() }
                     var dragOffset by remember(item.id) { mutableStateOf<Float?>(null) }
                     val settledOffset by animateFloatAsState(
-                        targetValue = dragOffset ?: if (revealed) -revealWidth else 0f,
+                        targetValue = dragOffset ?: when {
+                            revealed -> -revealWidth
+                            checkboxPending -> revealWidth
+                            else -> 0f
+                        },
                         animationSpec = tween(if (dragOffset != null) 0 else 160), label = "completion reveal",
                     )
                     val offset = dragOffset ?: settledOffset
@@ -213,6 +217,13 @@ fun TodoScreen(
                                 .graphicsLayer { alpha = (-offset / revealWidth).coerceIn(0f, 1f) }
                                 .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
                         ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
+                        if (!done && offset > 1f) IconButton(
+                            onClick = { checkboxConfirmId = null; complete(item.id) },
+                            enabled = checkboxPending,
+                            modifier = Modifier.align(Alignment.CenterStart).size(56.dp)
+                                .graphicsLayer { alpha = (offset / revealWidth).coerceIn(0f, 1f) }
+                                .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                        ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
                         Card(Modifier.fillMaxWidth().graphicsLayer { translationX = offset }.todoGestures(
                             onTap = {
                                 if (revealed) revealedId = null
@@ -220,7 +231,10 @@ fun TodoScreen(
                                 else editingId = item.id
                             },
                             onMenu = { revealedId = null; checkboxConfirmId = null; menuId = item.id },
-                            onDragStart = { checkboxConfirmId = null; dragOffset = settledOffset },
+                            onDragStart = {
+                                checkboxConfirmId = null
+                                dragOffset = if (checkboxPending) 0f else settledOffset
+                            },
                             onDrag = { amount -> if (!done) dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(-revealWidth, 0f) },
                             onDragEnd = { distance ->
                                 if (distance >= revealWidth) { revealedId = null; onNotes() }
@@ -268,11 +282,6 @@ fun TodoScreen(
                                 }
                             }
                         }
-                        if (checkboxPending) IconButton(
-                            onClick = { checkboxConfirmId = null; complete(item.id) },
-                            modifier = Modifier.align(Alignment.CenterStart).size(56.dp)
-                                .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
-                        ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
                     }
                 }
                 if (filter == "Normal") {
