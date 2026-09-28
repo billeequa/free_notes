@@ -1265,7 +1265,7 @@ private fun PatchNotesPopup() {
         title = { Text("What's new in 1.3.6") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Lists and settings now extend beneath Android's gesture bar, while buttons remain clear of it. The To Do plus button matches Notes.")
-            Text("E Reader is now left of Notes, with Notes selected at startup. A left swipe across a task still reveals its right-side completion check; tapping its checkbox reveals the check on the left.")
+            Text("E Reader is now left of Notes, with Notes selected at startup. A left swipe across a task reveals its right-side completion check; tapping its checkbox slides the card right to reveal the check on the left.")
             Text("Notes open with a little more space below the title, and today's notes show only their creation time. Reader colors follow the app background, and Double X Day has a clearer overlapping icon and setting label.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
