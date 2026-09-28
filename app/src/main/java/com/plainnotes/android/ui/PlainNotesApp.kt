@@ -356,7 +356,7 @@ private fun NotesHomeScreen(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .navigationBarsPadding()
-                    .padding(20.dp),
+                    .padding(start = 20.dp, bottom = 12.dp),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Settings,
@@ -368,16 +368,16 @@ private fun NotesHomeScreen(
                 onClick = onOpenDoubleX,
                 containerColor = MaterialTheme.colorScheme.secondary,
                 contentColor = MaterialTheme.colorScheme.onSecondary,
-                modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 88.dp, bottom = 20.dp)
+                modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 88.dp, bottom = 12.dp)
                     .semantics { contentDescription = "Open today's Double X Day note" },
             ) {
                 val stroke = MaterialTheme.colorScheme.onSecondary
                 Canvas(Modifier.size(30.dp)) {
-                    val left = size.width * 0.4f
-                    val right = size.width * 0.6f
+                    val left = size.width * 0.34f
+                    val right = size.width * 0.66f
                     val top = size.height * 0.2f
                     val bottom = size.height * 0.8f
-                    val overlap = size.width * 0.56f
+                    val overlap = size.width * 0.52f
                     val width = 2.5.dp.toPx()
                     drawLine(stroke, Offset(left - overlap / 2, top), Offset(left + overlap / 2, bottom), width, cap = StrokeCap.Round)
                     drawLine(stroke, Offset(left + overlap / 2, top), Offset(left - overlap / 2, bottom), width, cap = StrokeCap.Round)
@@ -393,7 +393,7 @@ private fun NotesHomeScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .navigationBarsPadding()
-                    .padding(20.dp),
+                    .padding(end = 20.dp, bottom = 12.dp),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Add,
@@ -435,7 +435,7 @@ private fun NotesScreen(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp,
-            bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+            bottom = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
@@ -1262,11 +1262,10 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.3.6") },
+        title = { Text("What's new in 1.3.7") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Lists and settings now extend beneath Android's gesture bar, while buttons remain clear of it. The To Do plus button matches Notes.")
-            Text("E Reader is now left of Notes, with Notes selected at startup. A left swipe across a task reveals its right-side completion check; tapping its checkbox slides the card right to reveal the check on the left.")
-            Text("Notes open with a little more space below the title, and today's notes show only their creation time. Reader colors follow the app background, and Double X Day has a clearer overlapping icon and setting label.")
+            Text("The Notes list now has enough space to show its last title above the floating buttons. Floating buttons sit a little lower, and the Double X symbol overlaps less.")
+            Text("An opposite swipe after revealing a To-Do completion check now closes it without opening another action. The top tab color extends behind Android's status bar, whose icons follow the app theme for contrast.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

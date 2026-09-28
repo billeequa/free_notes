@@ -1,5 +1,9 @@
 package com.plainnotes.android.ui.theme
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
@@ -9,8 +13,11 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
@@ -148,6 +155,14 @@ fun PlainNotesTheme(
         )
     }
 
+    val window = LocalContext.current.findActivity()?.window
+    SideEffect {
+        window?.let {
+            WindowInsetsControllerCompat(it, it.decorView).isAppearanceLightStatusBars =
+                chromeColors.topAppBarContent.luminance() < 0.5f
+        }
+    }
+
     CompositionLocalProvider(LocalChromeColors provides chromeColors) {
         MaterialTheme(
             colorScheme = colorScheme,
@@ -155,6 +170,12 @@ fun PlainNotesTheme(
             content = content,
         )
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable

@@ -25,3 +25,7 @@ Fix bottom control overlap, restore the earlier top bar appearance, and keep bot
 ## 1.3.6
 
 Draw app content beneath the gesture bar, move E Reader left of Notes, refine note spacing and timestamps, match reader backgrounds and To Do plus-button colors, and clarify Double X Day controls.
+
+## 1.3.7
+
+Give the last Note clearance above floating controls, lower those controls, make an opposite swipe dismiss an open To-Do completion check, reduce Double X overlap, and improve status bar contrast over the tab ribbon.
