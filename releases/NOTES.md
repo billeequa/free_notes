@@ -1,6 +1,6 @@
-Jnotes 1.3.4
+JNotes 1.3.5
 
-- Optional EPUB reader using Readium, multiple persistent books folders, covers and metadata, contents navigation, and remembered reading position.
-- Optional Double X Day notes with a daily accomplishment list derived from completed To-Do items and a separate editable journal.
-- Completing the seventh task offers to create today's note; declining offers again after another completion.
-- This release uses a new permanent signing key. Android cannot install it over 1.3.3 or earlier. Before uninstalling, locate and back up the selected notes folder, including `to_do_jnotes.txt`, and verify the backup. Uninstall the old app, install 1.3.4, and select the same folder. Saved notes and To-Do completion dates are read from those files. App settings and folder permissions must be selected again.
+- Keep the Notes, To Do, and Settings controls above Android's bottom navigation area.
+- Restore the 1.3.3 top-bar treatment. Swipe from To Do to E Reader with a long left swipe across a task, or swipe the fixed tab row; swipe right in the E Reader library to return to To Do. Short left swipes on tasks still reveal the completion check.
+- Tapping a To-Do checkbox reveals its green confirmation on the left; a short left swipe reveals the confirmation on the right.
+- Signed with the same key as 1.3.4, so it installs over 1.3.4 without uninstalling or resetting the selected notes folder and To-Do history.
