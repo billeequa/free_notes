@@ -207,7 +207,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     state = pagerState,
                     modifier = Modifier.weight(1f),
                     beyondViewportPageCount = 1,
-                    userScrollEnabled = pagerState.currentPage == 0,
+                    userScrollEnabled = pagerState.currentPage != 1,
                 ) { page ->
                     if (page == 0) NotesHomeScreen(
                     uiState = uiState,
@@ -242,6 +242,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     viewModel = viewModel,
                     snackbar = snackbarHostState,
                     onNotes = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    onReader = { scope.launch { pagerState.animateScrollToPage(2) } },
                 )
                 else ReaderLibraryScreen(onSettings = { currentScreenName = AppScreen.Settings.name })
                 }
@@ -1239,11 +1240,11 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.3.4") },
+        title = { Text("What's new in 1.3.5") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Optional E Reader: turn on Show E Reader in Settings, add one or more books folders, and open EPUBs with remembered reading position.")
-            Text("Optional Double X Day: enable it in Settings. Tap the overlapping X beside Settings to open today's note. After the seventh completed task, JNotes will offer to create it.")
-            Text("Updating: open Settings → Open GitHub Releases, sign in if asked, and download the newest APK. Open it and approve Update. Allow this download source to install apps if Android asks. Keep the existing app installed.")
+            Text("Bottom controls now stay clear of Android's navigation bar. The top bar follows the 1.3.3 appearance.")
+            Text("Swipe between To Do and the optional E Reader. A long left swipe across a task opens the reader; a short left swipe still reveals the right-side completion check.")
+            Text("Tapping a To-Do checkbox reveals the green confirmation on the left. This update installs over 1.3.4; keep the existing app installed.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )
