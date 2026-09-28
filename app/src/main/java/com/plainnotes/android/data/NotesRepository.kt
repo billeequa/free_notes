@@ -208,6 +208,7 @@ class NotesRepository(private val context: Context) {
 
     suspend fun moveToTrash(uriString: String) {
         withContext(Dispatchers.IO) {
+            storageMutex.withLock {
             val source = DocumentFile.fromSingleUri(context, Uri.parse(uriString))
                 ?: throw IOException("The note could not be found.")
             val trash = requireTrashDirectory()
@@ -215,17 +216,26 @@ class NotesRepository(private val context: Context) {
             if (!source.delete()) {
                 throw IOException("The note could not be deleted after copying to trash.")
             }
+            }
         }
     }
 
     suspend fun restoreFromTrash(uriString: String) {
         withContext(Dispatchers.IO) {
+            storageMutex.withLock {
             val source = DocumentFile.fromSingleUri(context, Uri.parse(uriString))
                 ?: throw IOException("The trashed note could not be found.")
+            val date = readNoteDocument(source, true)?.doubleXDate
             val root = requireRootDirectory()
+            if (date != null && root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
+                    .mapNotNull { readNoteDocument(it, false) }
+                    .any { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }) {
+                throw IOException("A Double X Day note already exists for $date.")
+            }
             copyDocumentToDirectory(source, root)
             if (!source.delete()) {
                 throw IOException("The trashed note could not be removed after restoring it.")
+            }
             }
         }
     }

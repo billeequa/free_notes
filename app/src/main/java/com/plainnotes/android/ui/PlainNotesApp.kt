@@ -547,7 +547,8 @@ private fun NoteListRow(
                 )
                 Spacer(modifier = Modifier.size(12.dp))
                 Text(
-                    text = shortDate(note.modifiedAt),
+                    text = if (note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() == LocalDate.now())
+                        shortDateTime(note.createdAt) else shortDate(note.modifiedAt),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
