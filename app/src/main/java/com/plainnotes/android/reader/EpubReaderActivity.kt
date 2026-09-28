@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.commitNow
@@ -39,9 +40,10 @@ import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.Link
+import org.readium.r2.shared.util.AbsoluteUrl
 import com.plainnotes.android.ui.theme.plainNotesTopAppBarColors
 
-@OptIn(ExperimentalReadiumApi::class)
+@OptIn(ExperimentalReadiumApi::class, ExperimentalMaterial3Api::class)
 class EpubReaderActivity : FragmentActivity() {
     private val containerId = View.generateViewId()
     private var navigator: EpubNavigatorFragment? = null
@@ -99,7 +101,13 @@ class EpubReaderActivity : FragmentActivity() {
                                         supportFragmentManager.fragmentFactory = EpubNavigatorFactory(reading).createFragmentFactory(
                                             initialLocator = initial,
                                             initialPreferences = preferences(theme, fontScale, colors.background.toArgb(), colors.onBackground.toArgb()),
-                                            listener = object : EpubNavigatorFragment.Listener {},
+                                            listener = object : EpubNavigatorFragment.Listener {
+                                                override fun onExternalLinkActivated(url: AbsoluteUrl) {
+                                                    if (url.isHttp) runCatching {
+                                                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url.uri))
+                                                    }
+                                                }
+                                            },
                                         )
                                         supportFragmentManager.commitNow { add(frame.id, EpubNavigatorFragment::class.java, Bundle(), "epub") }
                                         navigator = supportFragmentManager.findFragmentByTag("epub") as EpubNavigatorFragment

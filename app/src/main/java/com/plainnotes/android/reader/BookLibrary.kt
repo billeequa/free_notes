@@ -13,7 +13,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.services.cover
+import org.readium.r2.shared.publication.services.isRestricted
 import org.readium.r2.shared.util.asset.AssetRetriever
+import org.readium.r2.shared.util.getOrElse
 import org.readium.r2.shared.util.http.DefaultHttpClient
 import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.DefaultPublicationParser
