@@ -57,17 +57,24 @@ fun HomeTabs(selectedIndex: Int, showReader: Boolean, onNotes: () -> Unit, onTod
         detectHorizontalDragGestures(
             onDragStart = { tabDrag = 0f },
             onDragEnd = {
-                if (tabDrag > 40.dp.toPx()) { if (selectedIndex == 2) onTodos() else onNotes() }
-                else if (tabDrag < -40.dp.toPx()) { if (selectedIndex == 0) onTodos() else if (showReader) onReader() }
+                val notesIndex = if (showReader) 1 else 0
+                val todosIndex = notesIndex + 1
+                if (tabDrag > 40.dp.toPx()) {
+                    if (selectedIndex == todosIndex) onNotes()
+                    else if (showReader && selectedIndex == notesIndex) onReader()
+                } else if (tabDrag < -40.dp.toPx()) {
+                    if (showReader && selectedIndex == 0) onNotes()
+                    else if (selectedIndex == notesIndex) onTodos()
+                }
             },
             onHorizontalDrag = { change, amount -> change.consume(); tabDrag += amount },
         )
     }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
         TabRow(selectedTabIndex = selectedIndex, modifier = Modifier.weight(1f)) {
-            Tab(selected = selectedIndex == 0, onClick = onNotes, text = { Text("Notes") })
-            Tab(selected = selectedIndex == 1, onClick = onTodos, text = { Text("To Do") })
-            if (showReader) Tab(selected = selectedIndex == 2, onClick = onReader, text = { Text("E Reader") })
+            if (showReader) Tab(selected = selectedIndex == 0, onClick = onReader, text = { Text("E Reader") })
+            Tab(selected = selectedIndex == if (showReader) 1 else 0, onClick = onNotes, text = { Text("Notes") })
+            Tab(selected = selectedIndex == if (showReader) 2 else 1, onClick = onTodos, text = { Text("To Do") })
         }
         }
     }
@@ -80,7 +87,6 @@ fun TodoScreen(
     viewModel: PlainNotesViewModel,
     snackbar: SnackbarHostState,
     onNotes: () -> Unit,
-    onReader: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val allItems = state.todos.sortedBy { it.addedAt.toInstant() }
@@ -122,7 +128,12 @@ fun TodoScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            if (state.todosLoaded) FloatingActionButton(onClick = { newTaskId = java.util.UUID.randomUUID().toString(); creating = true }) {
+            if (state.todosLoaded) FloatingActionButton(
+                onClick = { newTaskId = java.util.UUID.randomUUID().toString(); creating = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.navigationBarsPadding(),
+            ) {
                 Icon(Icons.Rounded.Add, "Add to-do")
             }
         },
@@ -137,24 +148,21 @@ fun TodoScreen(
             }
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
-            val readerSwipeThreshold = with(LocalDensity.current) { maxWidth.toPx() * 0.55f }
             val knownOpenHeight = with(LocalDensity.current) { open.sumOf { openHeights[it.id] ?: 0 }.toDp() }
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().pointerInput(onNotes, onReader, state.showReader) {
+                modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
                     var distance = 0f
                     detectHorizontalDragGestures(
                         onDragStart = { distance = 0f },
                         onDragEnd = {
                             if (distance > 56.dp.toPx()) { revealedId = null; checkboxConfirmId = null; onNotes() }
-                            else if (state.showReader && distance < -56.dp.toPx()) {
-                                revealedId = null; checkboxConfirmId = null; onReader()
-                            }
                         },
                         onHorizontalDrag = { change, amount -> change.consume(); distance += amount },
                     )
                 },
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp,
+                    bottom = 88.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item(key = "filter-header") {
@@ -216,9 +224,6 @@ fun TodoScreen(
                             onDrag = { amount -> if (!done) dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(-revealWidth, 0f) },
                             onDragEnd = { distance ->
                                 if (distance >= revealWidth) { revealedId = null; onNotes() }
-                                else if (state.showReader && distance <= -readerSwipeThreshold) {
-                                    revealedId = null; checkboxConfirmId = null; onReader()
-                                }
                                 else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
                                 else revealedId = null
                                 dragOffset = null
