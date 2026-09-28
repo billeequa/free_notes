@@ -7,6 +7,7 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.List
@@ -87,7 +88,7 @@ class EpubReaderActivity : FragmentActivity() {
                     navigator?.submitPreferences(preferences(theme, fontScale, colors.background.toArgb(), colors.onBackground.toArgb()))
                 }
                 BackHandler(enabled = toc) { toc = false }
-                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().background(colors.background)) {
                     when {
                         error != null -> Column(Modifier.align(Alignment.Center).padding(24.dp)) {
                             Text(error!!)

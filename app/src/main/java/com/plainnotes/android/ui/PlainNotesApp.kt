@@ -21,10 +21,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,6 +70,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -119,8 +124,10 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
     val pagerState = rememberPagerState { if (uiState.showReader) 3 else 2 }
-    LaunchedEffect(uiState.showReader) {
-        if (!uiState.showReader && pagerState.currentPage > 1) pagerState.scrollToPage(0)
+    val notesPage = if (uiState.showReader) 1 else 0
+    val todosPage = notesPage + 1
+    LaunchedEffect(uiState.hasLoadedStorageConfig, uiState.showReader) {
+        if (uiState.hasLoadedStorageConfig) pagerState.scrollToPage(notesPage)
     }
     val folderPicker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
         uri?.let {
@@ -146,7 +153,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 AppScreen.Settings -> BackHandler { currentScreenName = AppScreen.Notes.name }
                 AppScreen.Trash -> BackHandler { currentScreenName = AppScreen.Settings.name }
                 AppScreen.Todos -> BackHandler { currentScreenName = AppScreen.Notes.name }
-                AppScreen.Notes -> if (pagerState.currentPage > 0) BackHandler { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } }
+                AppScreen.Notes -> if (pagerState.currentPage != notesPage) BackHandler { scope.launch { pagerState.animateScrollToPage(notesPage) } }
             }
         }
 
@@ -200,16 +207,16 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
             when (currentScreen) {
                 AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
                     HomeTabs(pagerState.currentPage, uiState.showReader,
-                        { scope.launch { pagerState.animateScrollToPage(0) } },
-                        { scope.launch { pagerState.animateScrollToPage(1) } },
-                        { scope.launch { pagerState.animateScrollToPage(2) } })
+                        { scope.launch { pagerState.animateScrollToPage(notesPage) } },
+                        { scope.launch { pagerState.animateScrollToPage(todosPage) } },
+                        { scope.launch { pagerState.animateScrollToPage(0) } })
                     HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.weight(1f),
                     beyondViewportPageCount = 1,
-                    userScrollEnabled = pagerState.currentPage != 1,
+                    userScrollEnabled = pagerState.currentPage != todosPage,
                 ) { page ->
-                    if (page == 0) NotesHomeScreen(
+                    if (page == notesPage) NotesHomeScreen(
                     uiState = uiState,
                     snackbarHostState = snackbarHostState,
                     onOpenSettings = { currentScreenName = AppScreen.Settings.name },
@@ -219,7 +226,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                             if (note != null) { editorStartsInEditMode = false; editingNoteUri = note.documentUri.toString() }
                         }
                     },
-                    onOpenTodos = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    onOpenTodos = { scope.launch { pagerState.animateScrollToPage(todosPage) } },
                     onOpenNote = {
                         editorStartsInEditMode = false
                         editingNoteUri = it.documentUri.toString()
@@ -237,12 +244,11 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     onSortSelected = viewModel::setNoteSortMode,
                 )
     
-                else if (page == 1) TodoScreen(
+                else if (page == todosPage) TodoScreen(
                     state = uiState,
                     viewModel = viewModel,
                     snackbar = snackbarHostState,
-                    onNotes = { scope.launch { pagerState.animateScrollToPage(0) } },
-                    onReader = { scope.launch { pagerState.animateScrollToPage(2) } },
+                    onNotes = { scope.launch { pagerState.animateScrollToPage(notesPage) } },
                 )
                 else ReaderLibraryScreen(onSettings = { currentScreenName = AppScreen.Settings.name })
                 }
@@ -349,6 +355,7 @@ private fun NotesHomeScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
                     .padding(20.dp),
             ) {
                 Icon(
@@ -361,12 +368,21 @@ private fun NotesHomeScreen(
                 onClick = onOpenDoubleX,
                 containerColor = MaterialTheme.colorScheme.secondary,
                 contentColor = MaterialTheme.colorScheme.onSecondary,
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 88.dp, bottom = 20.dp)
+                modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 88.dp, bottom = 20.dp)
                     .semantics { contentDescription = "Open today's Double X Day note" },
             ) {
-                Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                    Text("X", modifier = Modifier.offset(x = (-4).dp), style = MaterialTheme.typography.titleMedium)
-                    Text("X", modifier = Modifier.offset(x = 4.dp), style = MaterialTheme.typography.titleMedium)
+                val stroke = MaterialTheme.colorScheme.onSecondary
+                Canvas(Modifier.size(30.dp)) {
+                    val left = size.width * 0.4f
+                    val right = size.width * 0.6f
+                    val top = size.height * 0.2f
+                    val bottom = size.height * 0.8f
+                    val overlap = size.width * 0.56f
+                    val width = 2.5.dp.toPx()
+                    drawLine(stroke, Offset(left - overlap / 2, top), Offset(left + overlap / 2, bottom), width, cap = StrokeCap.Round)
+                    drawLine(stroke, Offset(left + overlap / 2, top), Offset(left - overlap / 2, bottom), width, cap = StrokeCap.Round)
+                    drawLine(stroke, Offset(right - overlap / 2, top), Offset(right + overlap / 2, bottom), width, cap = StrokeCap.Round)
+                    drawLine(stroke, Offset(right + overlap / 2, top), Offset(right - overlap / 2, bottom), width, cap = StrokeCap.Round)
                 }
             }
 
@@ -376,6 +392,7 @@ private fun NotesHomeScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
                     .padding(20.dp),
             ) {
                 Icon(
@@ -417,7 +434,8 @@ private fun NotesScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp,
+            bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
@@ -552,7 +570,8 @@ private fun NoteListRow(
                 Spacer(modifier = Modifier.size(12.dp))
                 Text(
                     text = if (note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() == LocalDate.now())
-                        shortDateTime(note.createdAt) else shortDate(note.modifiedAt),
+                        note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
+                    else shortDate(note.modifiedAt),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -592,6 +611,7 @@ private fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
                 colors = plainNotesTopAppBarColors(),
@@ -610,7 +630,7 @@ private fun SettingsScreen(
         Box(
             modifier = modifier
                 .padding(innerPadding)
-                .padding(24.dp),
+                .padding(start = 24.dp, end = 24.dp, top = 24.dp),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -674,7 +694,7 @@ private fun SettingsScreen(
                 )
                 HorizontalDivider()
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Enable Double X Day", Modifier.weight(1f))
+                    Text("Show Double X Day", Modifier.weight(1f))
                     androidx.compose.material3.Switch(checked = doubleXEnabled, onCheckedChange = onDoubleXEnabled)
                 }
                 HorizontalDivider()
@@ -690,6 +710,7 @@ private fun SettingsScreen(
                 Button(onClick = onOpenTrash, modifier = Modifier.fillMaxWidth()) {
                     Text("Open trash")
                 }
+                Spacer(Modifier.height(24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()))
             }
         }
     }
@@ -1082,7 +1103,8 @@ private fun NoteEditorScreen(
                     .fillMaxWidth()
                     .weight(1f)
                     .background(MaterialTheme.colorScheme.background)
-                    .padding(horizontal = 18.dp),
+                    .padding(horizontal = 18.dp)
+                    .padding(top = if (noteScrollY == 0) 12.dp else 0.dp),
             ) {
                 NoteBodyEditor(
                     value = body,
@@ -1240,11 +1262,11 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.3.5") },
+        title = { Text("What's new in 1.3.6") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Bottom controls now stay clear of Android's navigation bar. The top bar follows the 1.3.3 appearance.")
-            Text("Swipe between To Do and the optional E Reader. A long left swipe across a task opens the reader; a short left swipe still reveals the right-side completion check.")
-            Text("Tapping a To-Do checkbox reveals the green confirmation on the left. This update installs over 1.3.4; keep the existing app installed.")
+            Text("Lists and settings now extend beneath Android's gesture bar, while buttons remain clear of it. The To Do plus button matches Notes.")
+            Text("E Reader is now left of Notes, with Notes selected at startup. A left swipe across a task reveals its right-side completion check; tapping its checkbox slides the card right to reveal the check on the left.")
+            Text("Notes open with a little more space below the title, and today's notes show only their creation time. Reader colors follow the app background, and Double X Day has a clearer overlapping icon and setting label.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

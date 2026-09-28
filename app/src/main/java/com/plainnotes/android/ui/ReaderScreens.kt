@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -56,7 +57,7 @@ fun ReaderLibraryScreen(onSettings: () -> Unit) {
         finally { loading = false }
     }
     // A newly opened tab is composed again, so its library is rescanned; refresh is also explicit.
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Text("E Reader", style = MaterialTheme.typography.titleMedium)
@@ -71,7 +72,10 @@ fun ReaderLibraryScreen(onSettings: () -> Unit) {
                 Button(onClick = { picker.launch(null) }) { Text("Add Books Folder") }
                 TextButton(onClick = onSettings) { Text("Open Settings") }
             }
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            else -> LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+            ) {
                 items(books, key = { it.uri.toString() }) { book ->
                     Card(Modifier.fillMaxWidth().clickable {
                         context.startActivity(Intent(context, EpubReaderActivity::class.java)

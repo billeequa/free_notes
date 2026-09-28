@@ -1,6 +1,7 @@
-JNotes 1.3.5
+JNotes 1.3.6
 
-- Keep the Notes, To Do, and Settings controls above Android's bottom navigation area.
-- Restore the 1.3.3 top-bar treatment. Swipe from To Do to E Reader with a long left swipe across a task, or swipe the fixed tab row; swipe right in the E Reader library to return to To Do. Short left swipes on tasks still reveal the completion check.
-- Tapping a To-Do checkbox reveals its green confirmation on the left; a short left swipe reveals the confirmation on the right.
-- Signed with the same key as 1.3.4, so it installs over 1.3.4 without uninstalling or resetting the selected notes folder and To-Do history.
+- Let app content extend beneath Android's gesture bar while keeping the floating controls reachable. Match the To Do plus button to the Notes plus button.
+- Put E Reader left of Notes and To Do, and start on Notes. Ordinary tab swipes follow that order. A left swipe on a task reveals its right-side completion check; tapping its checkbox slides the card right to reveal the left-side check underneath.
+- Add a little space below the title when a note first opens; the gap disappears while scrolling. Show only the creation time for notes made today.
+- Match the EPUB library and reading background to the app appearance. Rename the setting to Show Double X Day and visibly overlap its X icon.
+- Signed with the same key as 1.3.4 and 1.3.5 for an in-place update that preserves notes, tasks, books, folders, and reading progress.

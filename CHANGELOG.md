@@ -17,3 +17,11 @@ Compact editor, ten themes, swipe tabs, simplified task cards and filters, condi
 # 1.3.4
 
 Optional Readium EPUB library and Double X Day notes. Existing note and to-do text formats remain compatible.
+
+## 1.3.5
+
+Fix bottom control overlap, restore the earlier top bar appearance, and keep both sides of To-Do completion confirmation.
+
+## 1.3.6
+
+Draw app content beneath the gesture bar, move E Reader left of Notes, refine note spacing and timestamps, match reader backgrounds and To Do plus-button colors, and clarify Double X Day controls.
