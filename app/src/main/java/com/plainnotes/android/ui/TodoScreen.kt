@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeTabs(selectedIndex: Int, showReader: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, onReader: () -> Unit) {
     var tabDrag by remember { mutableStateOf(0f) }
-    Column(Modifier.statusBarsPadding().pointerInput(selectedIndex, showReader) {
+    Column(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding().pointerInput(selectedIndex, showReader) {
         detectHorizontalDragGestures(
             onDragStart = { tabDrag = 0f },
             onDragEnd = {
@@ -132,7 +132,7 @@ fun TodoScreen(
                 onClick = { newTaskId = java.util.UUID.randomUUID().toString(); creating = true },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.navigationBarsPadding(),
+                modifier = Modifier.navigationBarsPadding().offset(y = 4.dp),
             ) {
                 Icon(Icons.Rounded.Add, "Add to-do")
             }
@@ -153,10 +153,15 @@ fun TodoScreen(
                 state = listState,
                 modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
                     var distance = 0f
+                    var startedWithReveal = false
                     detectHorizontalDragGestures(
-                        onDragStart = { distance = 0f },
+                        onDragStart = {
+                            distance = 0f
+                            startedWithReveal = revealedId != null || checkboxConfirmId != null
+                        },
                         onDragEnd = {
-                            if (distance > 56.dp.toPx()) { revealedId = null; checkboxConfirmId = null; onNotes() }
+                            if (startedWithReveal) { revealedId = null; checkboxConfirmId = null }
+                            else if (distance > 56.dp.toPx()) onNotes()
                         },
                         onHorizontalDrag = { change, amount -> change.consume(); distance += amount },
                     )
@@ -199,6 +204,7 @@ fun TodoScreen(
                     val checkboxPending = checkboxConfirmId == item.id && !done
                     val revealWidth = with(LocalDensity.current) { 64.dp.toPx() }
                     var dragOffset by remember(item.id) { mutableStateOf<Float?>(null) }
+                    var gestureStartedWithReveal by remember(item.id) { mutableStateOf(false) }
                     val settledOffset by animateFloatAsState(
                         targetValue = dragOffset ?: when {
                             revealed -> -revealWidth
@@ -232,17 +238,25 @@ fun TodoScreen(
                             },
                             onMenu = { revealedId = null; checkboxConfirmId = null; menuId = item.id },
                             onDragStart = {
-                                checkboxConfirmId = null
-                                dragOffset = if (checkboxPending) 0f else settledOffset
+                                gestureStartedWithReveal = revealed || checkboxPending
+                                dragOffset = settledOffset
                             },
-                            onDrag = { amount -> if (!done) dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(-revealWidth, 0f) },
+                            onDrag = { amount -> if (!done) {
+                                val min = if (gestureStartedWithReveal && checkboxPending) 0f else -revealWidth
+                                val max = if (gestureStartedWithReveal && checkboxPending) revealWidth else 0f
+                                dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(min, max)
+                            } },
                             onDragEnd = { distance ->
-                                if (distance >= revealWidth) { revealedId = null; onNotes() }
+                                if (gestureStartedWithReveal) {
+                                    revealedId = null
+                                    checkboxConfirmId = null
+                                } else if (distance >= revealWidth) { revealedId = null; onNotes() }
                                 else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
                                 else revealedId = null
                                 dragOffset = null
+                                gestureStartedWithReveal = false
                             },
-                            onDragCancel = { dragOffset = null },
+                            onDragCancel = { dragOffset = null; gestureStartedWithReveal = false },
                         )) {
                             Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 val color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
