@@ -2,6 +2,9 @@ package com.plainnotes.android.model
 
 import android.net.Uri
 import java.time.OffsetDateTime
+import java.time.LocalDate
+
+enum class NoteType { NORMAL, DOUBLE_X_DAY }
 
 data class NoteDocument(
     val documentUri: Uri,
@@ -11,6 +14,8 @@ data class NoteDocument(
     val createdAt: OffsetDateTime,
     val modifiedAt: OffsetDateTime,
     val isTrashed: Boolean,
+    val noteType: NoteType = NoteType.NORMAL,
+    val doubleXDate: LocalDate? = null,
 ) {
     val id: String = documentUri.toString()
 
@@ -32,6 +37,8 @@ data class EditableNote(
     val createdAt: OffsetDateTime,
     val modifiedAt: OffsetDateTime,
     val isTrashed: Boolean,
+    val noteType: NoteType = NoteType.NORMAL,
+    val doubleXDate: LocalDate? = null,
 ) {
     fun toDocument(): NoteDocument = NoteDocument(
         documentUri = documentUri,
@@ -41,6 +48,8 @@ data class EditableNote(
         createdAt = createdAt,
         modifiedAt = modifiedAt,
         isTrashed = isTrashed,
+        noteType = noteType,
+        doubleXDate = doubleXDate,
     )
 }
 
@@ -58,4 +67,6 @@ data class NoteTextContent(
     val createdAt: OffsetDateTime,
     val modifiedAt: OffsetDateTime,
     val body: String,
+    val noteType: NoteType = NoteType.NORMAL,
+    val doubleXDate: LocalDate? = null,
 )

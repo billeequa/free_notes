@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
@@ -50,24 +51,24 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
 @Composable
-fun HomeTabs(todoSelected: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, actions: @Composable () -> Unit = {}) {
+fun HomeTabs(selectedIndex: Int, showReader: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, onReader: () -> Unit) {
     var tabDrag by remember { mutableStateOf(0f) }
-    Column(Modifier.statusBarsPadding().pointerInput(todoSelected) {
+    Column(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding().pointerInput(selectedIndex, showReader) {
         detectHorizontalDragGestures(
             onDragStart = { tabDrag = 0f },
             onDragEnd = {
-                if (tabDrag > 40.dp.toPx()) onNotes()
-                else if (tabDrag < -40.dp.toPx()) onTodos()
+                if (tabDrag > 40.dp.toPx()) { if (selectedIndex == 2) onTodos() else onNotes() }
+                else if (tabDrag < -40.dp.toPx()) { if (selectedIndex == 0) onTodos() else if (showReader) onReader() }
             },
             onHorizontalDrag = { change, amount -> change.consume(); tabDrag += amount },
         )
     }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-        TabRow(selectedTabIndex = if (todoSelected) 1 else 0, modifier = Modifier.weight(1f)) {
-            Tab(selected = !todoSelected, onClick = onNotes, text = { Text("Notes") })
-            Tab(selected = todoSelected, onClick = onTodos, text = { Text("To-do") })
+        TabRow(selectedTabIndex = selectedIndex, modifier = Modifier.weight(1f)) {
+            Tab(selected = selectedIndex == 0, onClick = onNotes, text = { Text("Notes") })
+            Tab(selected = selectedIndex == 1, onClick = onTodos, text = { Text("To Do") })
+            if (showReader) Tab(selected = selectedIndex == 2, onClick = onReader, text = { Text("E Reader") })
         }
-        actions()
         }
     }
 }
@@ -90,6 +91,7 @@ fun TodoScreen(
     val open = allItems.filter { it.completedAt == null }
     val items = if (filter == "Normal") completed + open else filteredItems
     val listState = rememberLazyListState()
+    val openHeights = remember { mutableStateMapOf<String, Int>() }
     var revealedId by remember { mutableStateOf<String?>(null) }
     var positioned by rememberSaveable { mutableStateOf(false) }
     var filterMenu by remember { mutableStateOf(false) }
@@ -133,6 +135,7 @@ fun TodoScreen(
             }
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
+            val knownOpenHeight = with(LocalDensity.current) { open.sumOf { openHeights[it.id] ?: 0 }.toDp() }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
@@ -184,7 +187,8 @@ fun TodoScreen(
                         animationSpec = tween(if (dragOffset != null) 0 else 160), label = "completion reveal",
                     )
                     val offset = dragOffset ?: settledOffset
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))) {
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .onSizeChanged { if (!done) openHeights[item.id] = it.height }) {
                         if (!done && offset < -1f) IconButton(
                             onClick = { revealedId = null; complete(item.id) },
                             enabled = revealed,
@@ -249,7 +253,10 @@ fun TodoScreen(
                     if (open.isEmpty()) item(key = "open-empty") {
                         Text("No open tasks. Scroll up for completed tasks.", Modifier.padding(16.dp))
                     }
-                    item(key = "normal-space") { Spacer(Modifier.height(viewportHeight)) }
+                    if (open.isNotEmpty()) item(key = "normal-space") {
+                        Spacer(Modifier.height((viewportHeight - knownOpenHeight - 88.dp - (open.size * 8).dp)
+                            .coerceAtLeast(0.dp)))
+                    }
                 }
             }
             }

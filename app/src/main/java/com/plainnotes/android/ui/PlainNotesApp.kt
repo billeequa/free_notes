@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
@@ -71,6 +73,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -80,6 +84,11 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
+import com.plainnotes.android.model.NoteType
+import com.plainnotes.android.data.TodoItem
+import com.plainnotes.android.data.DoubleXDay
+import java.time.ZoneId
+import java.time.LocalDate
 import com.plainnotes.android.ui.components.NoteBodyEditor
 import com.plainnotes.android.ui.theme.PlainNotesTheme
 import com.plainnotes.android.ui.theme.plainNotesTopAppBarColors
@@ -109,7 +118,10 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var editingNoteUri by rememberSaveable { mutableStateOf<String?>(null) }
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
-    val pagerState = rememberPagerState { 2 }
+    val pagerState = rememberPagerState { if (uiState.showReader) 3 else 2 }
+    LaunchedEffect(uiState.showReader) {
+        if (!uiState.showReader && pagerState.currentPage > 1) pagerState.scrollToPage(0)
+    }
     val folderPicker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
         uri?.let {
             screenStateHolder.removeState(AppScreen.Notes.name)
@@ -134,11 +146,24 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 AppScreen.Settings -> BackHandler { currentScreenName = AppScreen.Notes.name }
                 AppScreen.Trash -> BackHandler { currentScreenName = AppScreen.Settings.name }
                 AppScreen.Todos -> BackHandler { currentScreenName = AppScreen.Notes.name }
-                AppScreen.Notes -> if (pagerState.currentPage == 1) BackHandler { scope.launch { pagerState.animateScrollToPage(0) } }
+                AppScreen.Notes -> if (pagerState.currentPage > 0) BackHandler { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } }
             }
         }
 
         PatchNotesPopup()
+        uiState.doubleXPromptDate?.let { date ->
+            AlertDialog(onDismissRequest = viewModel::dismissDoubleXPrompt,
+                title = { Text("Double X Day?") },
+                text = { Text("You've completed more than six things today. Open today's Double X Day note?") },
+                confirmButton = { TextButton(onClick = {
+                    viewModel.dismissDoubleXPrompt()
+                    scope.launch {
+                        val note = viewModel.openDoubleXNote(date)
+                        if (note != null) { editorStartsInEditMode = false; editingNoteUri = note.documentUri.toString() }
+                    }
+                }) { Text("Yes") } },
+                dismissButton = { TextButton(onClick = viewModel::dismissDoubleXPrompt) { Text("No") } })
+        }
 
         if (!uiState.hasLoadedStorageConfig) {
             CenterLoading(Modifier.fillMaxSize())
@@ -158,6 +183,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 noteUri = editingNoteUri.orEmpty(),
                 startInEditMode = editorStartsInEditMode,
                 fontScale = uiState.fontScale,
+                todos = uiState.todos,
                 onNoteUriChanged = { editingNoteUri = it },
                 onBack = {
                     viewModel.closeEditor()
@@ -173,9 +199,10 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
         screenStateHolder.SaveableStateProvider(currentScreenName) {
             when (currentScreen) {
                 AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
-                    HomeTabs(pagerState.currentPage == 1,
+                    HomeTabs(pagerState.currentPage, uiState.showReader,
                         { scope.launch { pagerState.animateScrollToPage(0) } },
-                        { scope.launch { pagerState.animateScrollToPage(1) } })
+                        { scope.launch { pagerState.animateScrollToPage(1) } },
+                        { scope.launch { pagerState.animateScrollToPage(2) } })
                     HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.weight(1f),
@@ -186,6 +213,12 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     uiState = uiState,
                     snackbarHostState = snackbarHostState,
                     onOpenSettings = { currentScreenName = AppScreen.Settings.name },
+                    onOpenDoubleX = {
+                        scope.launch {
+                            val note = viewModel.openDoubleXNote()
+                            if (note != null) { editorStartsInEditMode = false; editingNoteUri = note.documentUri.toString() }
+                        }
+                    },
                     onOpenTodos = { scope.launch { pagerState.animateScrollToPage(1) } },
                     onOpenNote = {
                         editorStartsInEditMode = false
@@ -204,12 +237,13 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     onSortSelected = viewModel::setNoteSortMode,
                 )
     
-                else TodoScreen(
+                else if (page == 1) TodoScreen(
                     state = uiState,
                     viewModel = viewModel,
                     snackbar = snackbarHostState,
                     onNotes = { scope.launch { pagerState.animateScrollToPage(0) } },
                 )
+                else ReaderLibraryScreen(onSettings = { currentScreenName = AppScreen.Settings.name })
                 }
     
                 }
@@ -217,11 +251,15 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     selectedFolderName = uiState.selectedFolderName,
                     themeMode = uiState.themeMode,
                     fontScale = uiState.fontScale,
+                    doubleXEnabled = uiState.doubleXEnabled,
+                    showReader = uiState.showReader,
                     onBack = { currentScreenName = AppScreen.Notes.name },
                     onPickFolder = { folderPicker.launch(null) },
                     onOpenTrash = { currentScreenName = AppScreen.Trash.name },
                     onThemeSelected = viewModel::setThemeMode,
                     onFontScaleSelected = viewModel::setFontScale,
+                    onDoubleXEnabled = viewModel::setDoubleXEnabled,
+                    onShowReader = viewModel::setShowReader,
                     modifier = Modifier.fillMaxSize(),
                 )
     
@@ -275,6 +313,7 @@ private fun NotesHomeScreen(
     uiState: PlainNotesUiState,
     snackbarHostState: SnackbarHostState,
     onOpenSettings: () -> Unit,
+    onOpenDoubleX: () -> Unit,
     onOpenTodos: () -> Unit,
     onOpenNote: (NoteDocument) -> Unit,
     onCreateNote: () -> Unit,
@@ -315,6 +354,19 @@ private fun NotesHomeScreen(
                     imageVector = Icons.Rounded.Settings,
                     contentDescription = "Settings",
                 )
+            }
+
+            if (uiState.doubleXEnabled) FloatingActionButton(
+                onClick = onOpenDoubleX,
+                containerColor = MaterialTheme.colorScheme.secondary,
+                contentColor = MaterialTheme.colorScheme.onSecondary,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 88.dp, bottom = 20.dp)
+                    .semantics { contentDescription = "Open today's Double X Day note" },
+            ) {
+                Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                    Text("X", modifier = Modifier.offset(x = (-4).dp), style = MaterialTheme.typography.titleMedium)
+                    Text("X", modifier = Modifier.offset(x = 4.dp), style = MaterialTheme.typography.titleMedium)
+                }
             }
 
             FloatingActionButton(
@@ -498,7 +550,8 @@ private fun NoteListRow(
                 )
                 Spacer(modifier = Modifier.size(12.dp))
                 Text(
-                    text = shortDate(note.modifiedAt),
+                    text = if (note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() == LocalDate.now())
+                        shortDateTime(note.createdAt) else shortDate(note.modifiedAt),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -508,9 +561,8 @@ private fun NoteListRow(
                 expanded = isMenuExpanded,
                 onDismissRequest = onDismissMenu,
             ) {
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    onClick = onRename,
+                if (note.noteType == NoteType.NORMAL) DropdownMenuItem(
+                    text = { Text("Rename") }, onClick = onRename,
                 )
                 DropdownMenuItem(
                     text = { Text("Move to trash") },
@@ -527,11 +579,15 @@ private fun SettingsScreen(
     selectedFolderName: String?,
     themeMode: ThemeMode,
     fontScale: Float,
+    doubleXEnabled: Boolean,
+    showReader: Boolean,
     onBack: () -> Unit,
     onPickFolder: () -> Unit,
     onOpenTrash: () -> Unit,
     onThemeSelected: (ThemeMode) -> Unit,
     onFontScaleSelected: (Float) -> Unit,
+    onDoubleXEnabled: (Boolean) -> Unit,
+    onShowReader: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -615,6 +671,18 @@ private fun SettingsScreen(
                         )
                     },
                 )
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Enable Double X Day", Modifier.weight(1f))
+                    androidx.compose.material3.Switch(checked = doubleXEnabled, onCheckedChange = onDoubleXEnabled)
+                }
+                HorizontalDivider()
+                Text("E Reader", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Show E Reader", Modifier.weight(1f))
+                    androidx.compose.material3.Switch(checked = showReader, onCheckedChange = onShowReader)
+                }
+                BooksFoldersSettings()
                 HorizontalDivider()
                 Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodyMedium)
                 UpdateSettings()
@@ -795,6 +863,7 @@ private fun NoteEditorRoute(
     noteUri: String,
     startInEditMode: Boolean,
     fontScale: Float,
+    todos: List<TodoItem>,
     onNoteUriChanged: (String) -> Unit,
     onBack: () -> Unit,
     viewModel: PlainNotesViewModel,
@@ -850,6 +919,7 @@ private fun NoteEditorRoute(
                 session = session!!,
                 startInEditMode = startInEditMode,
                 fontScale = fontScale,
+                todos = todos,
                 onBack = onBack,
                 onMoveToTrash = { uri -> viewModel.moveToTrash(uri, onBack) },
                 onSave = { updated ->
@@ -869,6 +939,7 @@ private fun NoteEditorScreen(
     session: NoteEditorSession,
     startInEditMode: Boolean,
     fontScale: Float,
+    todos: List<TodoItem>,
     onBack: () -> Unit,
     onMoveToTrash: (String) -> Unit,
     onSave: suspend (EditableNote) -> EditableNote?,
@@ -937,7 +1008,7 @@ private fun NoteEditorScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable { renameDialogOpen = true })
+                            modifier = Modifier.clickable(enabled = note.noteType == NoteType.NORMAL) { renameDialogOpen = true })
                         if (isSaving || session.isDirty) Text(
                             text = when {
                                 isSaving -> "Saving…"
@@ -994,6 +1065,17 @@ private fun NoteEditorScreen(
                 .background(MaterialTheme.colorScheme.background),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (note.noteType == NoteType.DOUBLE_X_DAY && note.doubleXDate != null) {
+                val accomplished = DoubleXDay.accomplished(todos, note.doubleXDate)
+                Column(Modifier.fillMaxWidth().heightIn(max = 220.dp)
+                    .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
+                    Text("Things Accomplished", style = MaterialTheme.typography.titleMedium)
+                    if (accomplished.isEmpty()) Text("No completed tasks yet.")
+                    accomplished.forEach { Text("✓ ${it.title}", style = MaterialTheme.typography.bodyMedium) }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Notes on the Day", style = MaterialTheme.typography.titleMedium)
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1157,11 +1239,10 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.3.2") },
+        title = { Text("What's new in 1.3.4") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Swipe a task left or tap its checkbox to smoothly reveal the green check on the right. Tap the green check to confirm completion.")
-            Text("Normal view starts with open tasks. Scroll up for completed history and the View selector, now a scrolling header like Notes’ Sort by row. It never covers tasks.")
-            Text("Swipe right to return to Notes. Long-press a task for its edit and actions menu. The tab bar stays fixed.")
+            Text("Optional E Reader: turn on Show E Reader in Settings, add one or more books folders, and open EPUBs with remembered reading position.")
+            Text("Optional Double X Day: enable it in Settings. Tap the overlapping X beside Settings to open today's note. After the seventh completed task, JNotes will offer to create it.")
             Text("Updating: open Settings → Open GitHub Releases, sign in if asked, and download the newest APK. Open it and approve Update. Allow this download source to install apps if Android asks. Keep the existing app installed.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
