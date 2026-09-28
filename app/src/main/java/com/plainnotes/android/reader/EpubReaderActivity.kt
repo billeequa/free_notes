@@ -41,6 +41,7 @@ import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.util.AbsoluteUrl
+import org.readium.r2.shared.util.toUri
 import com.plainnotes.android.ui.theme.plainNotesTopAppBarColors
 
 @OptIn(ExperimentalReadiumApi::class, ExperimentalMaterial3Api::class)
@@ -104,7 +105,7 @@ class EpubReaderActivity : FragmentActivity() {
                                             listener = object : EpubNavigatorFragment.Listener {
                                                 override fun onExternalLinkActivated(url: AbsoluteUrl) {
                                                     if (url.isHttp) runCatching {
-                                                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url.uri))
+                                                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri()))
                                                     }
                                                 }
                                             },
