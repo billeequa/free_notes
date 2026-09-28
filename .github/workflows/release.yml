@@ -2,6 +2,7 @@ name: Publish signed Jnotes release
 on:
   workflow_dispatch:
   push:
+    tags: ['v*']
     branches: [main]
     paths: ['releases/current.json']
 permissions:
@@ -24,7 +25,7 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - name: Build with permanent signing key
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         env:
           KEYSTORE_BASE64: ${{ secrets.JNOTES_KEYSTORE_BASE64 }}
           JNOTES_KEYSTORE: ${{ runner.temp }}/jnotes-release.jks

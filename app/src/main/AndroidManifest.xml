@@ -21,6 +21,9 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
         </provider>
         <activity
+            android:name=".reader.EpubReaderActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
@@ -33,4 +36,3 @@
     </application>
 
 </manifest>
-

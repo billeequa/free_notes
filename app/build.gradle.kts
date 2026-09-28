@@ -11,8 +11,8 @@ android {
         applicationId = "com.plainnotes.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.3.2"
+        versionCode = 8
+        versionName = "1.4.0"
         val updateRepository = providers.gradleProperty("updateRepository").orElse("billeequa/free_notes").get()
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(updateRepository))
         buildConfigField("String", "UPDATE_REPOSITORY", "\"$updateRepository\"")
@@ -46,6 +46,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
@@ -77,6 +78,11 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
+    implementation("org.readium.kotlin-toolkit:readium-shared:3.2.0")
+    implementation("org.readium.kotlin-toolkit:readium-streamer:3.2.0")
+    implementation("org.readium.kotlin-toolkit:readium-navigator:3.2.0")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     testImplementation(libs.junit)
     testImplementation("org.mockito:mockito-core:5.14.2")
@@ -84,6 +90,4 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
-
-
 

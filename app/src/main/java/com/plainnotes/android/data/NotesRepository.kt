@@ -10,11 +10,13 @@ import com.plainnotes.android.model.ExportResult
 import com.plainnotes.android.model.FolderInfo
 import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.model.NoteTextContent
+import com.plainnotes.android.model.NoteType
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.time.OffsetDateTime
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -41,6 +43,10 @@ class NotesRepository(private val context: Context) {
     fun fontScale(): Flow<Float> = settingsRepository.fontScale
 
     fun noteSortMode(): Flow<String> = settingsRepository.noteSortMode
+    fun doubleXEnabled(): Flow<Boolean> = settingsRepository.doubleXEnabled
+    fun showReader(): Flow<Boolean> = settingsRepository.showReader
+    suspend fun setDoubleXEnabled(enabled: Boolean) = settingsRepository.setDoubleXEnabled(enabled)
+    suspend fun setShowReader(enabled: Boolean) = settingsRepository.setShowReader(enabled)
 
     suspend fun persistRootFolder(uri: Uri) {
         withContext(Dispatchers.IO) {
@@ -123,6 +129,32 @@ class NotesRepository(private val context: Context) {
         }
     }
 
+    /** Serialized with ordinary note writes so a repeated tap cannot create a second daily note. */
+    suspend fun findOrCreateDoubleXNote(date: LocalDate): EditableNote = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val root = requireRootDirectory()
+            root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
+                .mapNotNull { readEditableNote(it, false) }
+                .firstOrNull { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }
+                ?.let { return@withLock it }
+            val now = now()
+            val title = "Double X Day — ${date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault()))}"
+            val filename = uniqueFileName(root, "double-x-day-$date.txt")
+            val file = root.createFile(TEXT_MIME_TYPE, filename) ?: throw IOException("Unable to create Double X note.")
+            writeText(file.uri, NoteFileParser.serialize(NoteTextContent(title, now, now, "", NoteType.DOUBLE_X_DAY, date)))
+            readEditableNote(file, false) ?: throw IOException("Unable to open Double X note.")
+        }
+    }
+
+    suspend fun hasDoubleXNote(date: LocalDate): Boolean = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val root = requireRootDirectory()
+            root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
+                .mapNotNull { readNoteDocument(it, false) }
+                .any { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }
+        }
+    }
+
     suspend fun loadEditableNote(uriString: String): EditableNote? = withContext(Dispatchers.IO) {
         storageMutex.withLock {
             val file = DocumentFile.fromSingleUri(context, Uri.parse(uriString)) ?: return@withContext null
@@ -147,6 +179,8 @@ class NotesRepository(private val context: Context) {
                     createdAt = updated.createdAt,
                     modifiedAt = updated.modifiedAt,
                     body = updated.body,
+                    noteType = updated.noteType,
+                    doubleXDate = updated.doubleXDate,
                 ),
             )
             writeText(
@@ -307,6 +341,8 @@ class NotesRepository(private val context: Context) {
             createdAt = document.createdAt,
             modifiedAt = document.modifiedAt,
             isTrashed = document.isTrashed,
+            noteType = document.noteType,
+            doubleXDate = document.doubleXDate,
         )
     }
 
@@ -326,6 +362,8 @@ class NotesRepository(private val context: Context) {
             createdAt = parsed.createdAt,
             modifiedAt = parsed.modifiedAt,
             isTrashed = isTrashed,
+            noteType = parsed.noteType,
+            doubleXDate = parsed.doubleXDate,
         )
     }
 
@@ -478,4 +516,3 @@ class NotesRepository(private val context: Context) {
         val previousFileToDelete: DocumentFile? = null,
     )
 }
-

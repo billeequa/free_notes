@@ -14,4 +14,7 @@ Compact editor, ten themes, swipe tabs, simplified task cards and filters, condi
 - Trash, restore, permanent-delete confirmation, and ZIP export
 - Multiple themes, font sizes, and note sorting
 - Installable APK at `releases/jnotes_v1.apk`
+# 1.4.0
+
+Optional Readium EPUB library and Double X Day notes. Existing note and to-do text formats remain compatible.
 

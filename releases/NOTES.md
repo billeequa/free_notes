@@ -1,8 +1,6 @@
-Jnotes 1.3.2
+Jnotes 1.4.0
 
-- Swipe left to reveal the green completion confirmation on the right; tap it to complete.
-- Task cards follow your finger, with a short smooth reveal animation for checkbox taps.
-- Swipe right to return to Notes; long-press opens the task actions menu.
-- View/Normal now scrolls with the list, styled like Notes' Sort by row. It does not cover tasks.
-- Normal view still starts at open tasks, with completed history above.
-- Install over 1.3 or 1.3.1 without uninstalling; same signing certificate.
+- Optional EPUB reader using Readium, multiple persistent books folders, covers and metadata, contents navigation, and remembered reading position.
+- Optional Double X Day notes with a daily accomplishment list derived from completed To-Do items and a separate editable journal.
+- Completing the seventh task offers to create today's note; declining offers again after another completion.
+- Install over 1.3.2 or 1.3.3 without uninstalling; notes and to-do files remain in their existing folder.

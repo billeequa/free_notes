@@ -8,6 +8,9 @@ import com.plainnotes.android.data.NotesRepository
 import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.data.TodoItem
+import com.plainnotes.android.data.DoubleXDay
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -57,6 +60,9 @@ data class PlainNotesUiState(
     val themeMode: ThemeMode = ThemeMode.DARK_1,
     val fontScale: Float = 1.0f,
     val noteSortMode: NoteSortMode = NoteSortMode.MODIFIED,
+    val doubleXEnabled: Boolean = false,
+    val showReader: Boolean = false,
+    val doubleXPromptDate: LocalDate? = null,
     val isLoading: Boolean = true,
     val notes: List<NoteDocument> = emptyList(),
     val trash: List<NoteDocument> = emptyList(),
@@ -75,6 +81,12 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     val uiState: StateFlow<PlainNotesUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch { repository.doubleXEnabled().collectLatest { enabled ->
+            _uiState.update { it.copy(doubleXEnabled = enabled, doubleXPromptDate = if (enabled) it.doubleXPromptDate else null) }
+        } }
+        viewModelScope.launch { repository.showReader().collectLatest { enabled ->
+            _uiState.update { it.copy(showReader = enabled) }
+        } }
         viewModelScope.launch {
             repository.rootFolderUri().collectLatest { uri ->
                 if (uri == null) {
@@ -84,10 +96,12 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                         themeMode = _uiState.value.themeMode,
                         fontScale = _uiState.value.fontScale,
                         noteSortMode = _uiState.value.noteSortMode,
+                        doubleXEnabled = _uiState.value.doubleXEnabled,
+                        showReader = _uiState.value.showReader,
                         isLoading = false,
                     )
                 } else {
-                    try { refreshState() } catch (error: CancellationException) {
+                    try { refreshState(); loadTodos() } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
                         _uiState.update { it.copy(hasLoadedStorageConfig = true, isStorageConfigured = true) }
@@ -126,6 +140,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                 _uiState.update { it.copy(todos = emptyList(), todosLoaded = false, todoError = null) }
                 repository.persistRootFolder(uri)
                 refreshState()
+                loadTodos()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -158,6 +173,22 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             null
         }
     }
+
+    suspend fun openDoubleXNote(date: LocalDate = LocalDate.now()): EditableNote? = try {
+        val note = repository.findOrCreateDoubleXNote(date)
+        _uiState.update { it.copy(doubleXPromptDate = null) }
+        refresh()
+        note
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        postStatus(error.message ?: "Unable to open Double X note.")
+        null
+    }
+
+    fun dismissDoubleXPrompt() { _uiState.update { it.copy(doubleXPromptDate = null) } }
+    fun setDoubleXEnabled(enabled: Boolean) { viewModelScope.launch { repository.setDoubleXEnabled(enabled) } }
+    fun setShowReader(enabled: Boolean) { viewModelScope.launch { repository.setShowReader(enabled) } }
 
     suspend fun loadNote(uriString: String): EditableNote? {
         return try {
@@ -268,9 +299,20 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         todoMutex.withLock {
             if (!_uiState.value.todosLoaded) return@withLock false
             try {
-                val updated = change(_uiState.value.todos)
+                val before = _uiState.value.todos
+                val updated = change(before)
                 repository.saveTodos(updated)
                 _uiState.update { it.copy(todos = updated, todoError = null) }
+                if (_uiState.value.doubleXEnabled) {
+                    val newCompletions = DoubleXDay.newlyCompleted(before, updated)
+                    for (item in newCompletions) {
+                        val date = item.completedAt!!.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate()
+                        val count = DoubleXDay.accomplished(updated, date).size
+                        if (count > 6 && !repository.hasDoubleXNote(date)) {
+                            _uiState.update { it.copy(doubleXPromptDate = date) }
+                        }
+                    }
+                }
                 true
             } catch (error: Exception) {
                 postStatus(error.message ?: "Unable to save the to-do list.")
@@ -364,6 +406,3 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 }
-
-
-

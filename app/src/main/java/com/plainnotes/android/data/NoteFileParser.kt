@@ -1,8 +1,10 @@
 package com.plainnotes.android.data
 
 import com.plainnotes.android.model.NoteTextContent
+import com.plainnotes.android.model.NoteType
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -12,6 +14,8 @@ object NoteFileParser {
     private const val titlePrefix = "Title:"
     private const val createdPrefix = "Created:"
     private const val modifiedPrefix = "Modified:"
+    private const val typePrefix = "Note-Type:"
+    private const val doubleXDatePrefix = "Double-X-Date:"
     private val storageFormatter: DateTimeFormatter =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
     private val legacyFormatter: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
@@ -29,6 +33,10 @@ object NoteFileParser {
         append(' ')
         append(content.modifiedAt.toLocalDateTime().format(storageFormatter))
         append('\n')
+        if (content.noteType == NoteType.DOUBLE_X_DAY && content.doubleXDate != null) {
+            appendLine("$typePrefix DOUBLE_X_DAY")
+            appendLine("$doubleXDatePrefix ${content.doubleXDate}")
+        }
         append('\n')
         append(content.body)
     }
@@ -46,6 +54,8 @@ object NoteFileParser {
         var title: String? = null
         var created: OffsetDateTime? = null
         var modified: OffsetDateTime? = null
+        var noteType = NoteType.NORMAL
+        var doubleXDate: LocalDate? = null
         var titleHeaderSeen = false
         var metadataLineCount = 0
 
@@ -69,6 +79,16 @@ object NoteFileParser {
 
                 line.startsWith(modifiedPrefix, ignoreCase = true) -> {
                     modified = parseDate(line.substringAfter(':').trim())
+                    true
+                }
+
+                line.startsWith(typePrefix, ignoreCase = true) -> {
+                    noteType = if (line.substringAfter(':').trim() == "DOUBLE_X_DAY") NoteType.DOUBLE_X_DAY else NoteType.NORMAL
+                    true
+                }
+
+                line.startsWith(doubleXDatePrefix, ignoreCase = true) -> {
+                    doubleXDate = runCatching { LocalDate.parse(line.substringAfter(':').trim()) }.getOrNull()
                     true
                 }
 
@@ -101,6 +121,8 @@ object NoteFileParser {
             createdAt = created ?: modified ?: fallbackModified,
             modifiedAt = modified ?: fallbackModified,
             body = body,
+            noteType = if (doubleXDate == null) NoteType.NORMAL else noteType,
+            doubleXDate = doubleXDate,
         )
     }
 

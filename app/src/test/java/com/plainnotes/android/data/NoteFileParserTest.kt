@@ -1,11 +1,26 @@
 package com.plainnotes.android.data
 
 import java.time.OffsetDateTime
+import java.time.LocalDate
+import com.plainnotes.android.model.NoteTextContent
+import com.plainnotes.android.model.NoteType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NoteFileParserTest {
+    @Test fun `double X metadata round trips without changing journal text`() {
+        val now = OffsetDateTime.parse("2026-09-28T08:00:00-04:00")
+        val date = LocalDate.parse("2026-09-28")
+        val text = "I wrote this myself.\n\nA second paragraph."
+        val serialized = NoteFileParser.serialize(NoteTextContent("Double X Day — September 28, 2026",
+            now, now, text, NoteType.DOUBLE_X_DAY, date))
+        val parsed = NoteFileParser.parse(serialized, "double-x-day.txt", 0L, now)
+        assertEquals(NoteType.DOUBLE_X_DAY, parsed.noteType)
+        assertEquals(date, parsed.doubleXDate)
+        assertEquals(text, parsed.body)
+    }
+
     @Test
     fun `parse reads local-time header format`() {
         val raw = """

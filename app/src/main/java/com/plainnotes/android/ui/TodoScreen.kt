@@ -50,24 +50,24 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
 @Composable
-fun HomeTabs(todoSelected: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, actions: @Composable () -> Unit = {}) {
+fun HomeTabs(selectedIndex: Int, showReader: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, onReader: () -> Unit) {
     var tabDrag by remember { mutableStateOf(0f) }
-    Column(Modifier.statusBarsPadding().pointerInput(todoSelected) {
+    Column(Modifier.statusBarsPadding().pointerInput(selectedIndex, showReader) {
         detectHorizontalDragGestures(
             onDragStart = { tabDrag = 0f },
             onDragEnd = {
-                if (tabDrag > 40.dp.toPx()) onNotes()
-                else if (tabDrag < -40.dp.toPx()) onTodos()
+                if (tabDrag > 40.dp.toPx()) { if (selectedIndex == 2) onTodos() else onNotes() }
+                else if (tabDrag < -40.dp.toPx()) { if (selectedIndex == 0) onTodos() else if (showReader) onReader() }
             },
             onHorizontalDrag = { change, amount -> change.consume(); tabDrag += amount },
         )
     }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-        TabRow(selectedTabIndex = if (todoSelected) 1 else 0, modifier = Modifier.weight(1f)) {
-            Tab(selected = !todoSelected, onClick = onNotes, text = { Text("Notes") })
-            Tab(selected = todoSelected, onClick = onTodos, text = { Text("To-do") })
+        TabRow(selectedTabIndex = selectedIndex, modifier = Modifier.weight(1f)) {
+            Tab(selected = selectedIndex == 0, onClick = onNotes, text = { Text("Notes") })
+            Tab(selected = selectedIndex == 1, onClick = onTodos, text = { Text("To Do") })
+            if (showReader) Tab(selected = selectedIndex == 2, onClick = onReader, text = { Text("E Reader") })
         }
-        actions()
         }
     }
 }
