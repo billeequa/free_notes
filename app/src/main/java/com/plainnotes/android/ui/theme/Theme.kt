@@ -10,12 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
@@ -151,19 +146,6 @@ fun PlainNotesTheme(
             topAppBarContainer = Color(0xFF213040),
             topAppBarContent = DarkColors3.onSurface,
         )
-    }
-
-    val view = LocalView.current
-    SideEffect {
-        val activity = view.context as? android.app.Activity
-        activity?.window?.let { window ->
-            window.statusBarColor = chromeColors.topAppBarContainer.toArgb()
-            window.navigationBarColor = colorScheme.background.toArgb()
-            WindowInsetsControllerCompat(window, view).apply {
-                isAppearanceLightStatusBars = chromeColors.topAppBarContent.luminance() < 0.5f
-                isAppearanceLightNavigationBars = colorScheme.onBackground.luminance() < 0.5f
-            }
-        }
     }
 
     CompositionLocalProvider(LocalChromeColors provides chromeColors) {

@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeTabs(selectedIndex: Int, showReader: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, onReader: () -> Unit) {
     var tabDrag by remember { mutableStateOf(0f) }
-    Column(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding().pointerInput(selectedIndex, showReader) {
+    Column(Modifier.statusBarsPadding().pointerInput(selectedIndex, showReader) {
         detectHorizontalDragGestures(
             onDragStart = { tabDrag = 0f },
             onDragEnd = {
@@ -80,6 +80,7 @@ fun TodoScreen(
     viewModel: PlainNotesViewModel,
     snackbar: SnackbarHostState,
     onNotes: () -> Unit,
+    onReader: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val allItems = state.todos.sortedBy { it.addedAt.toInstant() }
@@ -93,6 +94,7 @@ fun TodoScreen(
     val listState = rememberLazyListState()
     val openHeights = remember { mutableStateMapOf<String, Int>() }
     var revealedId by remember { mutableStateOf<String?>(null) }
+    var checkboxConfirmId by remember { mutableStateOf<String?>(null) }
     var positioned by rememberSaveable { mutableStateOf(false) }
     var filterMenu by remember { mutableStateOf(false) }
     var menuId by remember { mutableStateOf<String?>(null) }
@@ -135,14 +137,20 @@ fun TodoScreen(
             }
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
+            val readerSwipeThreshold = with(LocalDensity.current) { maxWidth.toPx() * 0.55f }
             val knownOpenHeight = with(LocalDensity.current) { open.sumOf { openHeights[it.id] ?: 0 }.toDp() }
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
+                modifier = Modifier.fillMaxSize().pointerInput(onNotes, onReader, state.showReader) {
                     var distance = 0f
                     detectHorizontalDragGestures(
                         onDragStart = { distance = 0f },
-                        onDragEnd = { if (distance > 56.dp.toPx()) { revealedId = null; onNotes() } },
+                        onDragEnd = {
+                            if (distance > 56.dp.toPx()) { revealedId = null; checkboxConfirmId = null; onNotes() }
+                            else if (state.showReader && distance < -56.dp.toPx()) {
+                                revealedId = null; checkboxConfirmId = null; onReader()
+                            }
+                        },
                         onHorizontalDrag = { change, amount -> change.consume(); distance += amount },
                     )
                 },
@@ -180,6 +188,7 @@ fun TodoScreen(
                 items(items, key = { it.id }) { item ->
                     val done = item.completedAt != null
                     val revealed = revealedId == item.id && !done
+                    val checkboxPending = checkboxConfirmId == item.id && !done
                     val revealWidth = with(LocalDensity.current) { 64.dp.toPx() }
                     var dragOffset by remember(item.id) { mutableStateOf<Float?>(null) }
                     val settledOffset by animateFloatAsState(
@@ -197,12 +206,19 @@ fun TodoScreen(
                                 .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
                         ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
                         Card(Modifier.fillMaxWidth().graphicsLayer { translationX = offset }.todoGestures(
-                            onTap = { if (revealed) revealedId = null else editingId = item.id },
-                            onMenu = { revealedId = null; menuId = item.id },
-                            onDragStart = { dragOffset = settledOffset },
+                            onTap = {
+                                if (revealed) revealedId = null
+                                else if (checkboxPending) checkboxConfirmId = null
+                                else editingId = item.id
+                            },
+                            onMenu = { revealedId = null; checkboxConfirmId = null; menuId = item.id },
+                            onDragStart = { checkboxConfirmId = null; dragOffset = settledOffset },
                             onDrag = { amount -> if (!done) dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(-revealWidth, 0f) },
                             onDragEnd = { distance ->
                                 if (distance >= revealWidth) { revealedId = null; onNotes() }
+                                else if (state.showReader && distance <= -readerSwipeThreshold) {
+                                    revealedId = null; checkboxConfirmId = null; onReader()
+                                }
                                 else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
                                 else revealedId = null
                                 dragOffset = null
@@ -216,7 +232,7 @@ fun TodoScreen(
                                         checked = done,
                                         onCheckedChange = {
                                             if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
-                                            else revealedId = item.id
+                                            else { revealedId = null; checkboxConfirmId = item.id }
                                         },
                                         modifier = Modifier.semantics { contentDescription = if (done) "Reopen: ${item.title}" else "Show completion confirmation: ${item.title}" },
                                     )
@@ -247,6 +263,11 @@ fun TodoScreen(
                                 }
                             }
                         }
+                        if (checkboxPending) IconButton(
+                            onClick = { checkboxConfirmId = null; complete(item.id) },
+                            modifier = Modifier.align(Alignment.CenterStart).size(56.dp)
+                                .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                        ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
                     }
                 }
                 if (filter == "Normal") {
