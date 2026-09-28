@@ -8,9 +8,13 @@ The application ID remains com.plainnotes.android. The selected-folder preferenc
 
 Old GitHub Actions debug builds used disposable signing keys. The old private key cannot be reconstructed from an APK. If Android rejects an upgrade from 1.2 due to a different signature, verify the selected folder contains every saved note and to_do_jnotes.txt and copy that folder before any uninstall. After reinstalling, select the SAME folder, not a new empty folder. External text files survive uninstall; internal drafts and settings do not. Do not uninstall while a save is failing.
 
+## Signing identity
+
+Version 1.3.4 starts a new permanent signing identity because the private key used for 1.3 through 1.3.3 was lost. Android requires uninstalling the old app before installing 1.3.4. First copy and verify the user-selected notes folder, including `to_do_jnotes.txt`. Uninstall clears the saved folder selection and settings; after installation, select the same folder to load notes and To-Do history. Keep the new private signing backup outside the repository so subsequent versions can update 1.3.4 in place.
+
 ## One-time signing setup
 
-The delivered private signing setup archive contains a permanent keystore and an authenticated gh CLI setup script. Keep it private, outside the repository, and backed up. Its script configures these Actions secrets after you run gh auth login:
+The private signing backup contains the permanent keystore and credentials. Keep it private, outside the repository, and backed up. Configure these Actions secrets for later releases:
 
 - JNOTES_KEYSTORE_BASE64
 - JNOTES_STORE_PASSWORD
@@ -19,11 +23,9 @@ The delivered private signing setup archive contains a permanent keystore and an
 
 No private key or password belongs in Git history, releases, an APK, or workflow logs. The GitHub connector used for this change cannot set Actions secrets; the owner must run the script or enter the four values under Settings > Secrets and variables > Actions.
 
-## Private vs public releases
+## Public releases
 
-billeequa/free_notes is private. Unauthenticated GitHub release checks return 404, even if a release exists. The app explains this and offers the signed-in browser. No GitHub token is embedded in the APK. Browser download plus Install downloaded APK works with private releases.
-
-For direct checks/downloads without signing in, publish APK releases in a public distribution repository. The source repository can stay private. Set the Actions variable JNOTES_UPDATE_REPOSITORY to owner/distribution-repo for builds; publishing to another repository additionally needs a narrowly scoped credential and a destination change in release.yml. The supplied workflow publishes only in this repository. Making source public is not required and has not been done.
+billeequa/free_notes is public. JNotes checks GitHub Releases for newer APKs without embedding a GitHub token. The published 1.3.4 release has a signed `JNotes-1.3.4.apk` asset. The app still verifies package ID, newer versionCode, and signing identity before requesting an in-place update, so the old-key app will reject 1.3.4 as an automatic update. The documented uninstall/reinstall path is required once.
 
 ## Publish the next version
 
@@ -33,6 +35,6 @@ For direct checks/downloads without signing in, publish APK releases in a public
 
 The workflow uses the permanent signing secrets, tests, builds, verifies the APK, and publishes a release. APK asset names must be jnotes-<versionCode>.apk. Reusing a version/tag intentionally fails instead of replacing an existing release. Download the existing release if retrying a completed publication.
 
-The initial 1.3 signed APK is checked into releases/ with current.json, matching the repository's existing APK-distribution pattern. A push of current.json to main verifies and publishes that exact signed file, without requiring the signing secrets. Later manually dispatched releases build from source using the secrets.
+The 1.3.4 APK was signed from the tested release build and attached directly to the GitHub Release. The new private signing backup is kept in the owner's Library, outside Git. Configure the four Actions secrets from that backup before using the automated release workflow for a later version.
 
 References: https://developer.android.com/studio/publish/versioning and https://docs.github.com/en/rest/releases/releases
