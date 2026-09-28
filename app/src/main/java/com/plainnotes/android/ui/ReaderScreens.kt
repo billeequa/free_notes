@@ -72,7 +72,10 @@ fun ReaderLibraryScreen(onSettings: () -> Unit) {
                 Button(onClick = { picker.launch(null) }) { Text("Add Books Folder") }
                 TextButton(onClick = onSettings) { Text("Open Settings") }
             }
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            else -> LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+            ) {
                 items(books, key = { it.uri.toString() }) { book ->
                     Card(Modifier.fillMaxWidth().clickable {
                         context.startActivity(Intent(context, EpubReaderActivity::class.java)
