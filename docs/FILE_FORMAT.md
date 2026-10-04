@@ -89,3 +89,9 @@ the UTF-8 contents. Opening a file with a pending write retries that write befor
 parsing. Renaming a note writes and verifies a replacement before deleting the
 previous file. Storage-provider atomic replacement is not universally available;
 interruption during a rename can leave a duplicate, rather than discard the old copy.
+
+## Journal entries (1.4.0)
+
+Category: NOTES or Category: JOURNAL separates the two lists without moving the underlying text files. Journal-Date: yyyy-mm-dd associates a journal with its day independently of later edits. Both fields survive trash, restore and ZIP export. Missing category defaults to Notes, except valid legacy Double X Day metadata, which defaults to Journal and displays a standardized date title. Ordinary date-titled notes are never migrated automatically.
+
+Journal titles start at yyyy-mm-dd, then yyyy-mm-dd II, III, etc. Double X Day marks the earliest journal for its date, or creates one if none exists; it preserves the body, keeps any Roman numeral, and appends Double X Day to the title. Repeated opens reuse that entry.

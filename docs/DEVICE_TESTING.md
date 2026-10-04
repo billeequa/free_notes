@@ -49,3 +49,13 @@ this: build/sign with the original key if an in-place update is needed.
 - Force a note save failure: Not saved — Retry remains available under the title.
   Retrying must clear the failure only after a successful save. Note information
   contains timestamps; the separate metadata strip is gone.
+
+## Journal / 1.4.0 upgrade checks
+
+- Upgrade over 1.3.7 with the same signing key; confirm normal notes remain in Notes and existing Double X entries appear only in Journal.
+- Long-press a normal note, Move to Journal, restart, then Move to Notes; confirm its title and exact text survive both moves.
+- Tap Journal + repeatedly: check yyyy-mm-dd, II, III; restart and create IV. Edit and save text, then reopen it.
+- Create a daily journal and write paragraphs; use Double X Day, confirm the same entry and writing are retained with the suffix. Add another journal; repeated Double X opens still use the first.
+- Trash and restore both kinds of entries; confirm each returns to its category. Check ZIP export includes journal metadata.
+- Enable E Reader and check all four tabs at narrow widths and large font scale. Drag the tab window, tap Journal, and swipe between the home pages; the selected tab stays visible. To-Do completion gestures retain their previous behavior.
+- Open Double X Day from Notes or the auto prompt; Back should return to Journal. Settings should return to the previously selected home tab.

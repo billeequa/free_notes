@@ -1,3 +1,11 @@
+# 1.4.0
+
+- Add a separate Journal tab, with manual moves between Notes and Journal.
+- Journal + uses yyyy-mm-dd titles and Roman numerals for additional same-day entries.
+- Double X Day marks the first journal for its date, preserves its writing, and appends Double X Day to its date title.
+- Existing Double X Day entries appear in Journal automatically.
+- The tab window scrolls to keep the selected tab visible.
+
 # 1.3
 
 Compact editor, ten themes, swipe tabs, simplified task cards and filters, conditional timestamps, and validated APK updates. Existing task format preserved; rollback omitted. See releases/NOTES.md.

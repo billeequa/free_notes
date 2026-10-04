@@ -50,32 +50,23 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeTabs(selectedIndex: Int, showReader: Boolean, onNotes: () -> Unit, onTodos: () -> Unit, onReader: () -> Unit) {
-    var tabDrag by remember { mutableStateOf(0f) }
-    Column(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding().pointerInput(selectedIndex, showReader) {
-        detectHorizontalDragGestures(
-            onDragStart = { tabDrag = 0f },
-            onDragEnd = {
-                val notesIndex = if (showReader) 1 else 0
-                val todosIndex = notesIndex + 1
-                if (tabDrag > 40.dp.toPx()) {
-                    if (selectedIndex == todosIndex) onNotes()
-                    else if (showReader && selectedIndex == notesIndex) onReader()
-                } else if (tabDrag < -40.dp.toPx()) {
-                    if (showReader && selectedIndex == 0) onNotes()
-                    else if (selectedIndex == notesIndex) onTodos()
-                }
-            },
-            onHorizontalDrag = { change, amount -> change.consume(); tabDrag += amount },
-        )
-    }) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-        TabRow(selectedTabIndex = selectedIndex, modifier = Modifier.weight(1f)) {
-            if (showReader) Tab(selected = selectedIndex == 0, onClick = onReader, text = { Text("E Reader") })
-            Tab(selected = selectedIndex == if (showReader) 1 else 0, onClick = onNotes, text = { Text("Notes") })
-            Tab(selected = selectedIndex == if (showReader) 2 else 1, onClick = onTodos, text = { Text("To Do") })
-        }
+fun HomeTabs(selectedIndex: Int, showReader: Boolean, onPage: (Int) -> Unit) {
+    val labels = if (showReader) listOf("E Reader", "Notes", "To Do", "Journal")
+        else listOf("Notes", "To Do", "Journal")
+    Column(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
+        ScrollableTabRow(
+            selectedTabIndex = selectedIndex.coerceIn(labels.indices),
+            edgePadding = 8.dp,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ) {
+            labels.forEachIndexed { index, label ->
+                Tab(selected = selectedIndex == index, onClick = { onPage(index) },
+                    modifier = Modifier.widthIn(min = 112.dp),
+                    text = { Text(label, maxLines = 1) })
+            }
         }
     }
 }
