@@ -1,7 +1,7 @@
-JNotes 1.3.7
+# JNotes 1.4.0
 
-- Add scroll space below the final Note so its title can clear the floating controls. Lower the Notes and To Do floating buttons slightly while keeping them above gesture navigation.
-- A swipe that begins with a To-Do completion check revealed closes that check without opening the opposite check or navigating to another tab.
-- Reduce the overlap between the two Xs in the Double X Day icon.
-- Extend the tab ribbon color behind Android's status bar and set status icon contrast from the active app theme.
-- Signed with the same key as 1.3.4 through 1.3.6 for an in-place update that preserves notes, tasks, books, folders, and reading progress.
+Journal entries now have a separate tab. Long-press any note to move it to Journal, or move a journal back to Notes. Journal + creates yyyy-mm-dd, followed by II, III, etc. for additional same-day entries.
+
+Double X Day uses the first journal for that date and preserves its writing. Its title is yyyy-mm-dd Double X Day (with a Roman numeral if present). Existing Double X Day entries automatically appear in Journal. The top tab window scrolls and follows the selected tab.
+
+Install this APK over the existing 1.3.4 or later app to keep your settings, notes, journals, books, and to-do data. No uninstall is needed.

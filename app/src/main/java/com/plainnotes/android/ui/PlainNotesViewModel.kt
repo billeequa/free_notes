@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.plainnotes.android.data.NotesRepository
 import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
+import com.plainnotes.android.model.NoteCategory
 import com.plainnotes.android.data.TodoItem
 import com.plainnotes.android.data.DoubleXDay
 import java.time.LocalDate
@@ -65,6 +66,7 @@ data class PlainNotesUiState(
     val doubleXPromptDate: LocalDate? = null,
     val isLoading: Boolean = true,
     val notes: List<NoteDocument> = emptyList(),
+    val journals: List<NoteDocument> = emptyList(),
     val trash: List<NoteDocument> = emptyList(),
     val todos: List<TodoItem> = emptyList(),
     val todosLoaded: Boolean = false,
@@ -171,6 +173,30 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         } catch (error: Exception) {
             postStatus(error.message ?: "Unable to create a new note.")
             null
+        }
+    }
+
+    suspend fun createJournalNote(): EditableNote? = try {
+        val note = repository.createJournalNote()
+        refresh()
+        note
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        postStatus(error.message ?: "Unable to create journal entry.")
+        null
+    }
+
+    fun moveNoteCategory(uri: String, category: NoteCategory) {
+        viewModelScope.launch {
+            try {
+                repository.setNoteCategory(uri, category)
+                refreshState()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                postStatus(error.message ?: "Unable to move the entry.")
+            }
         }
     }
 
@@ -386,7 +412,8 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                     isStorageConfigured = folderInfo != null,
                     selectedFolderName = folderInfo?.displayName,
                     isLoading = false,
-                    notes = notes,
+                    notes = notes.filter { it.category == NoteCategory.NOTES },
+                    journals = notes.filter { it.category == NoteCategory.JOURNAL },
                     trash = trash,
                 )
             }

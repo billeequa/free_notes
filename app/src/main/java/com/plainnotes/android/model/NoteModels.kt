@@ -5,6 +5,7 @@ import java.time.OffsetDateTime
 import java.time.LocalDate
 
 enum class NoteType { NORMAL, DOUBLE_X_DAY }
+enum class NoteCategory { NOTES, JOURNAL }
 
 data class NoteDocument(
     val documentUri: Uri,
@@ -16,6 +17,8 @@ data class NoteDocument(
     val isTrashed: Boolean,
     val noteType: NoteType = NoteType.NORMAL,
     val doubleXDate: LocalDate? = null,
+    val category: NoteCategory = if (noteType == NoteType.DOUBLE_X_DAY) NoteCategory.JOURNAL else NoteCategory.NOTES,
+    val journalDate: LocalDate? = doubleXDate,
 ) {
     val id: String = documentUri.toString()
 
@@ -39,6 +42,8 @@ data class EditableNote(
     val isTrashed: Boolean,
     val noteType: NoteType = NoteType.NORMAL,
     val doubleXDate: LocalDate? = null,
+    val category: NoteCategory = if (noteType == NoteType.DOUBLE_X_DAY) NoteCategory.JOURNAL else NoteCategory.NOTES,
+    val journalDate: LocalDate? = doubleXDate,
 ) {
     fun toDocument(): NoteDocument = NoteDocument(
         documentUri = documentUri,
@@ -50,6 +55,8 @@ data class EditableNote(
         isTrashed = isTrashed,
         noteType = noteType,
         doubleXDate = doubleXDate,
+        category = category,
+        journalDate = journalDate,
     )
 }
 
@@ -69,4 +76,6 @@ data class NoteTextContent(
     val body: String,
     val noteType: NoteType = NoteType.NORMAL,
     val doubleXDate: LocalDate? = null,
+    val category: NoteCategory = if (noteType == NoteType.DOUBLE_X_DAY) NoteCategory.JOURNAL else NoteCategory.NOTES,
+    val journalDate: LocalDate? = doubleXDate,
 )

@@ -90,6 +90,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.model.NoteType
+import com.plainnotes.android.model.NoteCategory
 import com.plainnotes.android.data.TodoItem
 import com.plainnotes.android.data.DoubleXDay
 import java.time.ZoneId
@@ -123,9 +124,10 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var editingNoteUri by rememberSaveable { mutableStateOf<String?>(null) }
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
-    val pagerState = rememberPagerState { if (uiState.showReader) 3 else 2 }
+    val pagerState = rememberPagerState { if (uiState.showReader) 4 else 3 }
     val notesPage = if (uiState.showReader) 1 else 0
     val todosPage = notesPage + 1
+    val journalPage = todosPage + 1
     LaunchedEffect(uiState.hasLoadedStorageConfig, uiState.showReader) {
         if (uiState.hasLoadedStorageConfig) pagerState.scrollToPage(notesPage)
     }
@@ -161,12 +163,15 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
         uiState.doubleXPromptDate?.let { date ->
             AlertDialog(onDismissRequest = viewModel::dismissDoubleXPrompt,
                 title = { Text("Double X Day?") },
-                text = { Text("You've completed more than six things today. Open today's Double X Day note?") },
+                text = { Text("You've completed more than six things today. Mark today's journal as a Double X Day?") },
                 confirmButton = { TextButton(onClick = {
                     viewModel.dismissDoubleXPrompt()
                     scope.launch {
                         val note = viewModel.openDoubleXNote(date)
-                        if (note != null) { editorStartsInEditMode = false; editingNoteUri = note.documentUri.toString() }
+                        if (note != null) {
+                            pagerState.scrollToPage(journalPage)
+                            editorStartsInEditMode = false; editingNoteUri = note.documentUri.toString()
+                        }
                     }
                 }) { Text("Yes") } },
                 dismissButton = { TextButton(onClick = viewModel::dismissDoubleXPrompt) { Text("No") } })
@@ -206,24 +211,28 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
         screenStateHolder.SaveableStateProvider(currentScreenName) {
             when (currentScreen) {
                 AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
-                    HomeTabs(pagerState.currentPage, uiState.showReader,
-                        { scope.launch { pagerState.animateScrollToPage(notesPage) } },
-                        { scope.launch { pagerState.animateScrollToPage(todosPage) } },
-                        { scope.launch { pagerState.animateScrollToPage(0) } })
+                    HomeTabs(pagerState.currentPage, uiState.showReader) { page ->
+                        scope.launch { pagerState.animateScrollToPage(page) }
+                    }
                     HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.weight(1f),
                     beyondViewportPageCount = 1,
                     userScrollEnabled = pagerState.currentPage != todosPage,
                 ) { page ->
-                    if (page == notesPage) NotesHomeScreen(
+                    if (page == notesPage || page == journalPage) NotesHomeScreen(
                     uiState = uiState,
+                    isJournal = page == journalPage,
+                    onMoveCategory = viewModel::moveNoteCategory,
                     snackbarHostState = snackbarHostState,
                     onOpenSettings = { currentScreenName = AppScreen.Settings.name },
                     onOpenDoubleX = {
                         scope.launch {
                             val note = viewModel.openDoubleXNote()
-                            if (note != null) { editorStartsInEditMode = false; editingNoteUri = note.documentUri.toString() }
+                            if (note != null) {
+                            pagerState.scrollToPage(journalPage)
+                            editorStartsInEditMode = false; editingNoteUri = note.documentUri.toString()
+                        }
                         }
                     },
                     onOpenTodos = { scope.launch { pagerState.animateScrollToPage(todosPage) } },
@@ -233,7 +242,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     },
                     onCreateNote = {
                         scope.launch {
-                            val created = viewModel.createNote()
+                            val created = if (page == journalPage) viewModel.createJournalNote() else viewModel.createNote()
                             editorStartsInEditMode = true
                             editingNoteUri = created?.documentUri?.toString()
                         }
@@ -318,6 +327,8 @@ private fun SetupScreen(
 @Composable
 private fun NotesHomeScreen(
     uiState: PlainNotesUiState,
+    isJournal: Boolean,
+    onMoveCategory: (String, NoteCategory) -> Unit,
     snackbarHostState: SnackbarHostState,
     onOpenSettings: () -> Unit,
     onOpenDoubleX: () -> Unit,
@@ -339,7 +350,9 @@ private fun NotesHomeScreen(
                 .padding(innerPadding),
         ) {
             NotesScreen(
-            notes = uiState.notes,
+            notes = if (isJournal) uiState.journals else uiState.notes,
+            isJournal = isJournal,
+            onMoveCategory = onMoveCategory,
             isLoading = uiState.isLoading,
             onOpen = onOpenNote,
             onRenameNote = onRenameNote,
@@ -397,7 +410,7 @@ private fun NotesHomeScreen(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Add,
-                    contentDescription = "New note",
+                    contentDescription = if (isJournal) "New journal entry" else "New note",
                 )
             }
         }
@@ -407,6 +420,8 @@ private fun NotesHomeScreen(
 @Composable
 private fun NotesScreen(
     notes: List<NoteDocument>,
+    isJournal: Boolean,
+    onMoveCategory: (String, NoteCategory) -> Unit,
     isLoading: Boolean,
     onOpen: (NoteDocument) -> Unit,
     onRenameNote: (String, String) -> Unit,
@@ -425,8 +440,8 @@ private fun NotesScreen(
 
     if (notes.isEmpty()) {
         EmptyState(
-            title = "No notes yet",
-            body = "Tap the plus button to create your first note.",
+            title = if (isJournal) "No journal entries yet" else "No notes yet",
+            body = if (isJournal) "Tap the plus button to start today's journal." else "Tap the plus button to create your first note.",
             modifier = modifier,
         )
         return
@@ -462,6 +477,10 @@ private fun NotesScreen(
                 onOpen = { onOpen(note) },
                 onShowMenu = { selectedMenuNoteId = note.id },
                 onDismissMenu = { selectedMenuNoteId = null },
+                onMoveCategory = {
+                    onMoveCategory(note.id, if (isJournal) NoteCategory.NOTES else NoteCategory.JOURNAL)
+                    selectedMenuNoteId = null
+                },
                 onRename = {
                     renameTarget = note
                     selectedMenuNoteId = null
@@ -539,6 +558,7 @@ private fun NoteListRow(
     onShowMenu: () -> Unit,
     onDismissMenu: () -> Unit,
     onRename: () -> Unit,
+    onMoveCategory: () -> Unit,
     onMoveToTrash: () -> Unit,
 ) {
     Card(
@@ -583,6 +603,10 @@ private fun NoteListRow(
             ) {
                 if (note.noteType == NoteType.NORMAL) DropdownMenuItem(
                     text = { Text("Rename") }, onClick = onRename,
+                )
+                DropdownMenuItem(
+                    text = { Text(if (note.category == NoteCategory.JOURNAL) "Move to Notes" else "Move to Journal") },
+                    onClick = onMoveCategory,
                 )
                 DropdownMenuItem(
                     text = { Text("Move to trash") },
@@ -1262,10 +1286,10 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.3.7") },
+        title = { Text("What's new in 1.4.0") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("The Notes list now has enough space to show its last title above the floating buttons. Floating buttons sit a little lower, and the Double X symbol overlaps less.")
-            Text("An opposite swipe after revealing a To-Do completion check now closes it without opening another action. The top tab color extends behind Android's status bar, whose icons follow the app theme for contrast.")
+            Text("Journal entries now have their own tab, separate from Notes. Long-press an entry to move it between Notes and Journal. Existing Double X Day entries appear in Journal automatically.")
+            Text("Journal’s + creates a date-titled entry: yyyy-mm-dd, then II, III, and so on. Double X Day uses your first journal for that date, preserves its text, and adds Double X Day to its title. The tab strip scrolls to keep the selected tab visible.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

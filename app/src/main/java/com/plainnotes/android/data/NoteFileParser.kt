@@ -2,6 +2,7 @@ package com.plainnotes.android.data
 
 import com.plainnotes.android.model.NoteTextContent
 import com.plainnotes.android.model.NoteType
+import com.plainnotes.android.model.NoteCategory
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.LocalDate
@@ -16,6 +17,8 @@ object NoteFileParser {
     private const val modifiedPrefix = "Modified:"
     private const val typePrefix = "Note-Type:"
     private const val doubleXDatePrefix = "Double-X-Date:"
+    private const val categoryPrefix = "Category:"
+    private const val journalDatePrefix = "Journal-Date:"
     private val storageFormatter: DateTimeFormatter =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
     private val legacyFormatter: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
@@ -37,6 +40,8 @@ object NoteFileParser {
             appendLine("$typePrefix DOUBLE_X_DAY")
             appendLine("$doubleXDatePrefix ${content.doubleXDate}")
         }
+        appendLine("$categoryPrefix ${content.category.name}")
+        content.journalDate?.let { appendLine("$journalDatePrefix $it") }
         append('\n')
         append(content.body)
     }
@@ -56,6 +61,8 @@ object NoteFileParser {
         var modified: OffsetDateTime? = null
         var noteType = NoteType.NORMAL
         var doubleXDate: LocalDate? = null
+        var category: NoteCategory? = null
+        var journalDate: LocalDate? = null
         var titleHeaderSeen = false
         var metadataLineCount = 0
 
@@ -84,6 +91,16 @@ object NoteFileParser {
 
                 line.startsWith(typePrefix, ignoreCase = true) -> {
                     noteType = if (line.substringAfter(':').trim() == "DOUBLE_X_DAY") NoteType.DOUBLE_X_DAY else NoteType.NORMAL
+                    true
+                }
+
+                line.startsWith(categoryPrefix, ignoreCase = true) -> {
+                    category = runCatching { NoteCategory.valueOf(line.substringAfter(':').trim()) }.getOrNull()
+                    true
+                }
+
+                line.startsWith(journalDatePrefix, ignoreCase = true) -> {
+                    journalDate = runCatching { LocalDate.parse(line.substringAfter(':').trim()) }.getOrNull()
                     true
                 }
 
@@ -116,13 +133,21 @@ object NoteFileParser {
             else -> inferTitle(body, fallbackFileName)
         }
 
+        val resolvedType = if (doubleXDate == null) NoteType.NORMAL else noteType
+        val resolvedCategory = category ?: if (resolvedType == NoteType.DOUBLE_X_DAY) NoteCategory.JOURNAL else NoteCategory.NOTES
+        val resolvedCreated = created ?: modified ?: fallbackModified
+        // Legacy Double X files appear in Journal without rewriting their body.
+        val resolvedTitle = if (category == null && resolvedType == NoteType.DOUBLE_X_DAY)
+            "$doubleXDate Double X Day" else inferredTitle
         return NoteTextContent(
-            title = inferredTitle,
-            createdAt = created ?: modified ?: fallbackModified,
+            title = resolvedTitle,
+            createdAt = resolvedCreated,
             modifiedAt = modified ?: fallbackModified,
             body = body,
-            noteType = if (doubleXDate == null) NoteType.NORMAL else noteType,
+            noteType = resolvedType,
             doubleXDate = doubleXDate,
+            category = resolvedCategory,
+            journalDate = journalDate ?: doubleXDate ?: if (resolvedCategory == NoteCategory.JOURNAL) resolvedCreated.toLocalDate() else null,
         )
     }
 

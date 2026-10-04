@@ -11,6 +11,7 @@ import com.plainnotes.android.model.FolderInfo
 import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.model.NoteTextContent
 import com.plainnotes.android.model.NoteType
+import com.plainnotes.android.model.NoteCategory
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.IOException
@@ -129,21 +130,59 @@ class NotesRepository(private val context: Context) {
         }
     }
 
-    /** Serialized with ordinary note writes so a repeated tap cannot create a second daily note. */
+    suspend fun createJournalNote(): EditableNote = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val root = requireRootDirectory()
+            createJournalFile(root, LocalDate.now(), activeEditableNotes(root))
+        }
+    }
+
+    private fun activeEditableNotes(root: DocumentFile): List<EditableNote> =
+        root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
+            .mapNotNull { readEditableNote(it, false) }.toList()
+
+    private fun createJournalFile(root: DocumentFile, date: LocalDate, notes: List<EditableNote>): EditableNote {
+        val now = now()
+        val title = JournalEntries.nextTitle(date, notes.map { it.title })
+        val filename = uniqueFileName(root, "${fileStampFormatter.format(now)}-${slugify(title)}.txt")
+        val file = root.createFile(TEXT_MIME_TYPE, filename) ?: throw IOException("Unable to create journal entry.")
+        writeText(file.uri, NoteFileParser.serialize(NoteTextContent(
+            title, now, now, "", category = NoteCategory.JOURNAL, journalDate = date,
+        )))
+        return readEditableNote(file, false) ?: throw IOException("Unable to open journal entry.")
+    }
+
+    /** Serialized with other note writes; repeated opens reuse the same daily journal. */
     suspend fun findOrCreateDoubleXNote(date: LocalDate): EditableNote = withContext(Dispatchers.IO) {
         storageMutex.withLock {
             val root = requireRootDirectory()
-            root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
-                .mapNotNull { readEditableNote(it, false) }
-                .firstOrNull { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }
-                ?.let { return@withLock it }
-            val now = now()
-            val title = "Double X Day — ${date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault()))}"
-            val filename = uniqueFileName(root, "double-x-day-$date.txt")
-            val file = root.createFile(TEXT_MIME_TYPE, filename) ?: throw IOException("Unable to create Double X note.")
-            writeText(file.uri, NoteFileParser.serialize(NoteTextContent(title, now, now, "", NoteType.DOUBLE_X_DAY, date)))
-            readEditableNote(file, false) ?: throw IOException("Unable to open Double X note.")
+            val notes = activeEditableNotes(root)
+            val existing = notes.firstOrNull { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }
+            val daily = existing ?: notes.filter { it.category == NoteCategory.JOURNAL && it.journalDate == date }
+                .minWithOrNull(compareBy<EditableNote> { it.createdAt.toInstant() }
+                    .thenBy { JournalEntries.sequenceNumber(it.title) })
+                ?: createJournalFile(root, date, notes)
+            val updated = daily.copy(
+                title = JournalEntries.doubleXTitle(date, daily.title),
+                modifiedAt = if (daily.noteType == NoteType.DOUBLE_X_DAY) daily.modifiedAt else now(),
+                noteType = NoteType.DOUBLE_X_DAY, doubleXDate = date,
+                category = NoteCategory.JOURNAL, journalDate = date,
+            )
+            writeText(updated.documentUri, NoteFileParser.serialize(NoteTextContent(
+                updated.title, updated.createdAt, updated.modifiedAt, updated.body,
+                updated.noteType, updated.doubleXDate, updated.category, updated.journalDate,
+            )))
+            updated
         }
+    }
+
+    suspend fun setNoteCategory(uriString: String, category: NoteCategory) {
+        val note = loadEditableNote(uriString) ?: throw IOException("The note could not be found.")
+        saveNote(note.copy(
+            category = category,
+            journalDate = note.journalDate ?: if (category == NoteCategory.JOURNAL)
+                JournalEntries.dateFromTitle(note.title) ?: note.createdAt.toLocalDate() else null,
+        ))
     }
 
     suspend fun hasDoubleXNote(date: LocalDate): Boolean = withContext(Dispatchers.IO) {
@@ -181,6 +220,8 @@ class NotesRepository(private val context: Context) {
                     body = updated.body,
                     noteType = updated.noteType,
                     doubleXDate = updated.doubleXDate,
+                    category = updated.category,
+                    journalDate = updated.journalDate,
                 ),
             )
             writeText(
@@ -353,6 +394,8 @@ class NotesRepository(private val context: Context) {
             isTrashed = document.isTrashed,
             noteType = document.noteType,
             doubleXDate = document.doubleXDate,
+            category = document.category,
+            journalDate = document.journalDate,
         )
     }
 
@@ -374,6 +417,8 @@ class NotesRepository(private val context: Context) {
             isTrashed = isTrashed,
             noteType = parsed.noteType,
             doubleXDate = parsed.doubleXDate,
+            category = parsed.category,
+            journalDate = parsed.journalDate,
         )
     }
 
