@@ -1,6 +1,7 @@
 package com.plainnotes.android.ui.components
 
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.text.InputType
 import android.view.ContextThemeWrapper
 import android.view.View
@@ -68,5 +69,60 @@ class NoteEditorNativeTest {
         field.requestedPoint = null
         bringSelectionIntoView(field)
         assertEquals(field.length(), field.requestedPoint)
+    }
+
+    @Test fun finalLineCanScrollFiveLinesAboveBottomWithoutChangingNoteText() {
+        val field = editor()
+        val writing = field.text.toString()
+        val viewport = createNoteScrollContainer(field)
+        viewport.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY))
+        viewport.layout(0, 0, 300, 400)
+        viewport.scrollTo(0, Int.MAX_VALUE)
+        val finalLineBottom = field.top + field.totalPaddingTop +
+            field.layout.getLineBottom(field.lineCount - 1) - viewport.scrollY
+        assertTrue("Final line needs the requested clearance",
+            viewport.height - finalLineBottom >= field.lineHeight * 5)
+        assertEquals(field.lineHeight * 5, viewport.paddingBottom)
+        assertEquals(writing, field.text.toString())
+        assertFalse("Text must draw through padding while scrolling", viewport.clipToPadding)
+        assertEquals(0, (viewport.background as ColorDrawable).alpha)
+        assertEquals(0, (field.background as ColorDrawable).alpha)
+        assertEquals(0, field.paddingBottom)
+    }
+
+    @Test fun scrollingAndOverflowTransitionsKeepViewportAndTailStable() {
+        val field = editor()
+        val viewport = createNoteScrollContainer(field)
+        for (lines in listOf(3, 6, 12, 15, 30)) {
+            field.setText((1..lines).joinToString("\n") { "Line $it" })
+            for (height in listOf(500, 180, 500, 180)) {
+                viewport.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+                viewport.layout(0, 0, 300, height)
+                for (offset in listOf(0, Int.MAX_VALUE, 0)) {
+                    viewport.scrollTo(0, offset)
+                    field.updateNoteTextAppearance(Color.WHITE, Color.GRAY, Color.CYAN, 1f)
+                    viewport.updateNoteEndSpace(field)
+                    assertEquals(height, viewport.height)
+                    assertEquals(field.lineHeight * 5, viewport.paddingBottom)
+                    assertFalse(viewport.isLayoutRequested)
+                    assertFalse(field.isLayoutRequested)
+                }
+            }
+        }
+    }
+
+    @Test fun endSpaceScalesWithFontAndPreservesRangeSelection() {
+        val field = editor()
+        val viewport = createNoteScrollContainer(field)
+        field.setSelection(5, 25)
+        val originalTail = viewport.paddingBottom
+        field.updateNoteTextAppearance(Color.WHITE, Color.GRAY, Color.CYAN, 1.5f)
+        viewport.updateNoteEndSpace(field)
+        assertTrue(viewport.paddingBottom > originalTail)
+        assertEquals(field.lineHeight * 5, viewport.paddingBottom)
+        assertEquals(5, field.selectionStart)
+        assertEquals(25, field.selectionEnd)
     }
 }

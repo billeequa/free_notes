@@ -1,9 +1,9 @@
-# JNotes 1.4.2
+# JNotes 1.4.3
 
-Fix the shared Notes/Journal editor jumping between two heights when text just begins to overflow with the keyboard visible. Keep the viewport stable and stop resetting native text layout on each update. Preserve word-selection ranges and leave two-handle selection scrolling to Android.
+Add five lines of scrollable empty space beneath a note's last line. The space scales with the note font and applies to Notes, Journal, and Double X Day. It is UI spacing; saved/exported note text receives no extra newlines.
 
-Double X Day now inserts Things Accomplished, the completed-task snapshot, and Notes on the Day into the note body with standard note formatting. All of that text, and the title, is editable. Existing Double X entries receive the template once above their previous writing. Saving/reopening never regenerates edited or deleted headings or replaces the list with later tasks.
+The native editor sits in a full-height, transparent scroll container with padding clipping disabled. Text still draws behind Android's transparent gesture-navigation bar while scrolling, and the last line can scroll safely above it. The Scaffold/system-bar inset configuration remains intact; no fixed bottom ribbon or opaque overlay is added.
 
-Reviewed Notes, Journal, Ebooks, and To Do for equivalent resize/selection patterns. EPUB uses its persistent Readium navigator; To Do uses Compose text fields. Their existing swipe gestures are unchanged. Added Android-framework regression tests and device checks for the overflow transition and selection handles.
+Preserve native selection handling and the stable viewport fix. Regression tests cover end clearance, font scaling, text preservation, and transitions between short/long documents and keyboard-sized viewports. To Do and Ebooks behavior is unchanged.
 
-Install over the existing 1.3.4 or later app with the same signing key. Your notes, journals, books, settings, and to-do data remain in place. No uninstall is needed.
+Install jnotes-15.apk over the existing app. It uses the same signing key; no uninstall is needed.

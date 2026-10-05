@@ -101,3 +101,15 @@ this: build/sign with the original key if an in-place update is needed.
 
 JVM Android-framework tests cover stable native editor updates and range-selection
 ownership. Device checks above still verify actual Gboard and touch handles.
+
+## End-of-note clearance / 1.4.3
+
+- In Notes, Journal, and Double X, scroll a long document to the bottom. The final
+  line should sit five note-line heights above the viewport bottom. Change font
+  size: the clearance scales with it. Export/reopen: no synthetic newlines.
+- Scroll in the middle: text still draws behind the transparent gesture bar;
+  there is no fixed blank strip. Repeat light/dark themes and keyboard hide/show.
+- Add/remove lines around the keyboard-visible overflow boundary; the viewport
+  and tail padding must remain stable. Select words and drag both handles across
+  lines, then type at the end; Gboard must leave the caret visible.
+- Switch tabs and rotate; restore document scrolling. To Do swipes stay unchanged.
