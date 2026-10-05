@@ -124,10 +124,11 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var editingNoteUri by rememberSaveable { mutableStateOf<String?>(null) }
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
-    val pagerState = rememberPagerState { if (uiState.showReader) 4 else 3 }
-    val notesPage = if (uiState.showReader) 1 else 0
-    val todosPage = notesPage + 1
-    val journalPage = todosPage + 1
+    val pages = homePages(uiState.showReader)
+    val notesPage = pages.indexOf(HomePage.NOTES)
+    val journalPage = pages.indexOf(HomePage.JOURNAL)
+    val todosPage = pages.indexOf(HomePage.TODOS)
+    val pagerState = rememberPagerState(initialPage = notesPage) { pages.size }
     LaunchedEffect(uiState.hasLoadedStorageConfig, uiState.showReader) {
         if (uiState.hasLoadedStorageConfig) pagerState.scrollToPage(notesPage)
     }
@@ -211,13 +212,15 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
         screenStateHolder.SaveableStateProvider(currentScreenName) {
             when (currentScreen) {
                 AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
-                    HomeTabs(pagerState.currentPage, uiState.showReader) { page ->
+                    HomeTabs(pagerState.currentPage, pages) { page ->
                         scope.launch { pagerState.animateScrollToPage(page) }
                     }
                     HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.weight(1f),
                     beyondViewportPageCount = 1,
+                    // To Do owns task swipes and its right-swipe-to-Notes shortcut.
+                    // Do not enable pager gestures there when changing tab order.
                     userScrollEnabled = pagerState.currentPage != todosPage,
                 ) { page ->
                     if (page == notesPage || page == journalPage) NotesHomeScreen(
@@ -1047,6 +1050,13 @@ private fun NoteEditorScreen(
     }
 
     Scaffold(
+        // Editor edge-to-edge contract: BOTH this Scaffold and NoteEditorRoute
+        // must reserve zero system-bar insets. The default bottom inset ends the
+        // native editor above the gesture bar, leaving a blank ribbon even when
+        // the Android bar itself is transparent. TopAppBar handles the status
+        // bar; the content below consumes toolbar padding and handles only IME.
+        // Never add navigationBarsPadding/safeDrawingPadding to this viewport.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
                 colors = plainNotesTopAppBarColors(),
@@ -1286,10 +1296,10 @@ private fun PatchNotesPopup() {
     }
     if (visible) AlertDialog(
         onDismissRequest = { dismiss() },
-        title = { Text("What's new in 1.4.0") },
+        title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Journal entries now have their own tab, separate from Notes. Long-press an entry to move it between Notes and Journal. Existing Double X Day entries appear in Journal automatically.")
-            Text("Journal’s + creates a date-titled entry: yyyy-mm-dd, then II, III, and so on. Double X Day uses your first journal for that date, preserves its text, and adds Double X Day to its title. The tab strip scrolls to keep the selected tab visible.")
+            Text("The notes editor extends beneath Android’s transparent gesture-navigation bar again. Keyboard spacing remains in place while writing.")
+            Text("All enabled tabs now fit across the screen: Ebooks, Notes, Journal, To Do. Notes opens by default. Tap a tab or swipe the bar to change pages. To Do keeps its existing completion and navigation gestures.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

@@ -11,7 +11,9 @@ verify Android IME, touch, or Storage Access Framework behavior.
    remains visible above Gboard without an empty ribbon. Hide/show the keyboard,
    rotate, and repeat using gesture navigation and three-button navigation.
 3. Verify there is one app header, with no intermittent band above the body.
-   The Android status/navigation areas remain protected from text overlap.
+   The header stays below the Android status icons. With the keyboard hidden,
+   the editor background and scrolling text extend beneath the transparent
+   gesture-navigation bar; there must be no reserved bottom ribbon.
 4. Type continuously while a save finishes. No typed characters should disappear,
    focus should remain, and the newest draft should subsequently save.
 5. Rename while typing, rotate, background immediately after an edit, reopen,
@@ -57,5 +59,24 @@ this: build/sign with the original key if an in-place update is needed.
 - Tap Journal + repeatedly: check yyyy-mm-dd, II, III; restart and create IV. Edit and save text, then reopen it.
 - Create a daily journal and write paragraphs; use Double X Day, confirm the same entry and writing are retained with the suffix. Add another journal; repeated Double X opens still use the first.
 - Trash and restore both kinds of entries; confirm each returns to its category. Check ZIP export includes journal metadata.
-- Enable E Reader and check all four tabs at narrow widths and large font scale. Drag the tab window, tap Journal, and swipe between the home pages; the selected tab stays visible. To-Do completion gestures retain their previous behavior.
+- Enable E Reader and check all four tabs at narrow widths and large font scale. All enabled tabs stay visible; swiping the fixed tab bar changes pages without scrolling the bar. To-Do completion gestures retain their previous behavior.
 - Open Double X Day from Notes or the auto prompt; Back should return to Journal. Settings should return to the previously selected home tab.
+
+## Editor insets and fixed tabs / 1.4.1 regressions
+
+- On Android 14 with gesture navigation, open both a normal note and a journal.
+  Hide the keyboard and scroll a long entry: text and background must draw
+  underneath the gesture handle, with no blank band truncating the viewport.
+- Show/hide Gboard, switch themes, rotate, background/resume, and return from an
+  EPUB. The editor must remain edge-to-edge; the last caret stays above Gboard.
+- Check three-button navigation too. Android may apply its own contrast scrim
+  there; that is distinct from a Scaffold reserving blank bottom space.
+- With E Reader enabled, verify Ebooks | Notes | Journal | To Do, equally sized
+  and visible together. With it disabled, verify Notes | Journal | To Do and
+  persistent books data. Notes is selected on a fresh launch in either mode.
+- Tap each tab, then swipe left/right on the bar. Only the selected page changes;
+  the bar does not move, and swiping past the first/last tab has no effect.
+- Swipe page content in Ebooks, Notes, and Journal. In To Do, verify that a left
+  swipe reveals right-side completion, checkbox tap reveals left-side completion,
+  right swipe still goes directly to Notes, and a swipe with confirmation already
+  open only dismisses it. Long-press still opens the task menu.

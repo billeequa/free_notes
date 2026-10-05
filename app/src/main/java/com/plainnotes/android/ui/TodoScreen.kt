@@ -11,7 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -49,27 +48,6 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HomeTabs(selectedIndex: Int, showReader: Boolean, onPage: (Int) -> Unit) {
-    val labels = if (showReader) listOf("E Reader", "Notes", "To Do", "Journal")
-        else listOf("Notes", "To Do", "Journal")
-    Column(Modifier.background(MaterialTheme.colorScheme.surface).statusBarsPadding()) {
-        ScrollableTabRow(
-            selectedTabIndex = selectedIndex.coerceIn(labels.indices),
-            edgePadding = 8.dp,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ) {
-            labels.forEachIndexed { index, label ->
-                Tab(selected = selectedIndex == index, onClick = { onPage(index) },
-                    modifier = Modifier.widthIn(min = 112.dp),
-                    text = { Text(label, maxLines = 1) })
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable

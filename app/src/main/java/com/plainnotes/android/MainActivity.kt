@@ -12,6 +12,9 @@ import com.plainnotes.android.ui.PlainNotesApp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keep content beneath the transparent gesture-navigation bar. Window
+        // transparency alone is insufficient: NoteEditorScreen must also avoid
+        // Scaffold's default bottom inset (see its edge-to-edge contract).
         enableEdgeToEdge()
         setContent {
             Surface(modifier = Modifier.fillMaxSize()) {
