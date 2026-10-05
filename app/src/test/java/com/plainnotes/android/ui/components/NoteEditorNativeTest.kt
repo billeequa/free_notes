@@ -13,9 +13,13 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+// Use real Android font metrics; legacy graphics uses fake metrics that do
+// not change with text size and cannot verify line-scaled end spacing.
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NoteEditorNativeTest {
     private class TrackingEditText : EditText(ContextThemeWrapper(
         RuntimeEnvironment.getApplication(), android.R.style.Theme_Material_Light_NoActionBar,
