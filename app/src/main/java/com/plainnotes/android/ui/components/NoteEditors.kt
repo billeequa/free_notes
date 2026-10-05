@@ -507,6 +507,8 @@ private fun EditText.configureNoteTextBase(
     setSingleLine(false)
     maxLines = Int.MAX_VALUE
     gravity = Gravity.TOP or Gravity.START
+    // The viewport draws through the gesture-navigation area. Its Compose
+    // parent handles IME padding; do not reserve navigation-bar space here.
     setPadding(0, 0, 0, 0)
     includeFontPadding = false
     setLineSpacing(0f, NoteBodyLineSpacingMultiplier)
@@ -654,4 +656,3 @@ private class SimpleTextWatcher(
         afterTextChanged.invoke(s)
     }
 }
-
