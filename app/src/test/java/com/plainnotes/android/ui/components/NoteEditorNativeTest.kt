@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.text.InputType
 import android.view.ContextThemeWrapper
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
 import org.junit.Assert.*
 import org.junit.Test
@@ -26,6 +27,9 @@ class NoteEditorNativeTest {
     }
 
     private fun editor(): TrackingEditText = TrackingEditText().apply {
+        // AndroidView supplies these in the app; Android's selection span
+        // watcher also needs them in a standalone framework test.
+        layoutParams = ViewGroup.LayoutParams(300, 180)
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
         configureNoteTextBase(Color.WHITE, Color.GRAY, Color.CYAN, 1f)
         setText((1..18).joinToString("\n") { "Line $it has selectable words" })
