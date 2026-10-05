@@ -95,3 +95,14 @@ interruption during a rename can leave a duplicate, rather than discard the old 
 Category: NOTES or Category: JOURNAL separates the two lists without moving the underlying text files. Journal-Date: yyyy-mm-dd associates a journal with its day independently of later edits. Both fields survive trash, restore and ZIP export. Missing category defaults to Notes, except valid legacy Double X Day metadata, which defaults to Journal and displays a standardized date title. Ordinary date-titled notes are never migrated automatically.
 
 Journal titles start at yyyy-mm-dd, then yyyy-mm-dd II, III, etc. Double X Day marks the earliest journal for its date, or creates one if none exists; it preserves the body, keeps any Roman numeral, and appends Double X Day to the title. Repeated opens reuse that entry.
+
+## Editable Double X template (1.4.2)
+
+`Double-X-Template: 1` records that the editable template has been inserted.
+`Things Accomplished`, same-day completed task titles, and `Notes on the Day`
+are ordinary body text, with the standard note formatting. The list is a snapshot
+at insertion, not a live view. Editing or deleting any heading/list never recreates
+it. New or promoted entries insert it once; older Double X entries insert it on
+first open, retaining all previous body text underneath. The marker survives
+saving, category moves, trash/restore, and export. The title is editable too;
+reopening the daily shortcut retains a custom title and body.

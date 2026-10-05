@@ -80,3 +80,24 @@ this: build/sign with the original key if an in-place update is needed.
   swipe reveals right-side completion, checkbox tap reveals left-side completion,
   right swipe still goes directly to Notes, and a swipe with confirmation already
   open only dismisses it. Long-press still opens the task menu.
+
+## Editor transitions / 1.4.2 regressions
+
+- In Notes, Journal, and Double X, start with text that fits with Gboard hidden
+  but just overflows with it visible. Add/remove lines at that boundary, including
+  trailing blank lines. The viewport must not alternate heights or jump rapidly.
+- Long-press a word, adjust both selection handles, copy/paste, and select across
+  lines while scrolling. Repeat during autosave and keyboard hide/show. A selected
+  range must not be forced to its final character by caret visibility assistance.
+- Open an older Double X with writing, and promote a regular journal. Edit both
+  headings, the accomplishment list, and the title; save/reopen through both the
+  journal card and daily shortcut. Delete headings and reopen: no regenerated or
+  duplicate template. Existing writing and whitespace remain underneath.
+- Check To Do title/description selection and length transitions with Gboard.
+  Repeat completion, dismiss-opposite-swipe, and right-swipe-to-Notes gestures.
+- In an EPUB, select text across lines/pages and adjust Readium's native handles.
+  Show/hide controls, open/close Contents, rotate, and change font size/theme;
+  text must not oscillate and the navigator must retain its place.
+
+JVM Android-framework tests cover stable native editor updates and range-selection
+ownership. Device checks above still verify actual Gboard and touch handles.

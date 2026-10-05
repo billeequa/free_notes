@@ -11,8 +11,8 @@ android {
         applicationId = "com.plainnotes.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.4.1"
+        versionCode = 14
+        versionName = "1.4.2"
         val updateRepository = providers.gradleProperty("updateRepository").orElse("billeequa/free_notes").get()
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(updateRepository))
         buildConfigField("String", "UPDATE_REPOSITORY", "\"$updateRepository\"")
@@ -54,6 +54,10 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -85,6 +89,7 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("org.mockito:mockito-core:5.14.2")
 
     debugImplementation(libs.androidx.ui.tooling)

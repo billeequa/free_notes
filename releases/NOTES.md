@@ -1,7 +1,9 @@
-# JNotes 1.4.1
+# JNotes 1.4.2
 
-The notes editor once again fills the area underneath Android's transparent gesture-navigation bar. The inner editor no longer reserves a blank bottom strip; keyboard spacing remains in place while writing. Comments document the edge-to-edge inset contract to prevent this regression.
+Fix the shared Notes/Journal editor jumping between two heights when text just begins to overflow with the keyboard visible. Keep the viewport stable and stop resetting native text layout on each update. Preserve word-selection ranges and leave two-handle selection scrolling to Android.
 
-All enabled tabs fit across the screen in fixed, equal-width slots: Ebooks, Notes, Journal, To Do. Notes is selected by default. Tap a tab or swipe the bar to switch pages; the bar itself does not scroll. Existing To Do completion gestures and its right-swipe-to-Notes shortcut are unchanged.
+Double X Day now inserts Things Accomplished, the completed-task snapshot, and Notes on the Day into the note body with standard note formatting. All of that text, and the title, is editable. Existing Double X entries receive the template once above their previous writing. Saving/reopening never regenerates edited or deleted headings or replaces the list with later tasks.
 
-Install this APK over the existing 1.3.4 or later app to keep your settings, notes, journals, books, and to-do data. No uninstall is needed.
+Reviewed Notes, Journal, Ebooks, and To Do for equivalent resize/selection patterns. EPUB uses its persistent Readium navigator; To Do uses Compose text fields. Their existing swipe gestures are unchanged. Added Android-framework regression tests and device checks for the overflow transition and selection handles.
+
+Install over the existing 1.3.4 or later app with the same signing key. Your notes, journals, books, settings, and to-do data remain in place. No uninstall is needed.

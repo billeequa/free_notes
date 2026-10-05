@@ -19,6 +19,7 @@ object NoteFileParser {
     private const val doubleXDatePrefix = "Double-X-Date:"
     private const val categoryPrefix = "Category:"
     private const val journalDatePrefix = "Journal-Date:"
+    private const val doubleXTemplatePrefix = "Double-X-Template:"
     private val storageFormatter: DateTimeFormatter =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
     private val legacyFormatter: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
@@ -39,6 +40,9 @@ object NoteFileParser {
         if (content.noteType == NoteType.DOUBLE_X_DAY && content.doubleXDate != null) {
             appendLine("$typePrefix DOUBLE_X_DAY")
             appendLine("$doubleXDatePrefix ${content.doubleXDate}")
+            if (content.doubleXTemplateVersion > 0) {
+                appendLine("$doubleXTemplatePrefix ${content.doubleXTemplateVersion}")
+            }
         }
         appendLine("$categoryPrefix ${content.category.name}")
         content.journalDate?.let { appendLine("$journalDatePrefix $it") }
@@ -63,6 +67,7 @@ object NoteFileParser {
         var doubleXDate: LocalDate? = null
         var category: NoteCategory? = null
         var journalDate: LocalDate? = null
+        var doubleXTemplateVersion = 0
         var titleHeaderSeen = false
         var metadataLineCount = 0
 
@@ -109,6 +114,11 @@ object NoteFileParser {
                     true
                 }
 
+                line.startsWith(doubleXTemplatePrefix, ignoreCase = true) -> {
+                    doubleXTemplateVersion = line.substringAfter(':').trim().toIntOrNull()?.coerceAtLeast(0) ?: 0
+                    true
+                }
+
                 else -> false
             }
 
@@ -148,6 +158,7 @@ object NoteFileParser {
             doubleXDate = doubleXDate,
             category = resolvedCategory,
             journalDate = journalDate ?: doubleXDate ?: if (resolvedCategory == NoteCategory.JOURNAL) resolvedCreated.toLocalDate() else null,
+            doubleXTemplateVersion = doubleXTemplateVersion,
         )
     }
 

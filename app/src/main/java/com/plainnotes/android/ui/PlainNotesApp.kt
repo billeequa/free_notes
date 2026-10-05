@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.asPaddingValues
@@ -92,7 +91,6 @@ import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.model.NoteType
 import com.plainnotes.android.model.NoteCategory
 import com.plainnotes.android.data.TodoItem
-import com.plainnotes.android.data.DoubleXDay
 import java.time.ZoneId
 import java.time.LocalDate
 import com.plainnotes.android.ui.components.NoteBodyEditor
@@ -196,7 +194,6 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                 noteUri = editingNoteUri.orEmpty(),
                 startInEditMode = editorStartsInEditMode,
                 fontScale = uiState.fontScale,
-                todos = uiState.todos,
                 onNoteUriChanged = { editingNoteUri = it },
                 onBack = {
                     viewModel.closeEditor()
@@ -912,7 +909,6 @@ private fun NoteEditorRoute(
     noteUri: String,
     startInEditMode: Boolean,
     fontScale: Float,
-    todos: List<TodoItem>,
     onNoteUriChanged: (String) -> Unit,
     onBack: () -> Unit,
     viewModel: PlainNotesViewModel,
@@ -968,7 +964,6 @@ private fun NoteEditorRoute(
                 session = session!!,
                 startInEditMode = startInEditMode,
                 fontScale = fontScale,
-                todos = todos,
                 onBack = onBack,
                 onMoveToTrash = { uri -> viewModel.moveToTrash(uri, onBack) },
                 onSave = { updated ->
@@ -988,7 +983,6 @@ private fun NoteEditorScreen(
     session: NoteEditorSession,
     startInEditMode: Boolean,
     fontScale: Float,
-    todos: List<TodoItem>,
     onBack: () -> Unit,
     onMoveToTrash: (String) -> Unit,
     onSave: suspend (EditableNote) -> EditableNote?,
@@ -1011,8 +1005,8 @@ private fun NoteEditorScreen(
     var pendingUrl by remember(note.documentUri.toString()) { mutableStateOf<String?>(null) }
     var confirmTrashDialogOpen by remember(note.documentUri.toString()) { mutableStateOf(false) }
     var shouldFocusBodyEditor by remember(note.documentUri.toString()) { mutableStateOf(startInEditMode) }
-    var requestedSelection by remember(note.documentUri.toString()) {
-        mutableStateOf<Int?>(if (startInEditMode) note.body.length else null)
+    val initialSelection = remember(note.documentUri.toString()) {
+        if (startInEditMode) note.body.length else null
     }
     var noteScrollY by rememberSaveable(note.documentUri.toString()) { mutableStateOf(0) }
     var showNoteInfo by remember { mutableStateOf(false) }
@@ -1064,7 +1058,7 @@ private fun NoteEditorScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(title.ifBlank { "Untitled" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable(enabled = note.noteType == NoteType.NORMAL) { renameDialogOpen = true })
+                            modifier = Modifier.clickable { renameDialogOpen = true })
                         if (isSaving || session.isDirty) Text(
                             text = when {
                                 isSaving -> "Saving…"
@@ -1121,24 +1115,19 @@ private fun NoteEditorScreen(
                 .background(MaterialTheme.colorScheme.background),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (note.noteType == NoteType.DOUBLE_X_DAY && note.doubleXDate != null) {
-                val accomplished = DoubleXDay.accomplished(todos, note.doubleXDate)
-                Column(Modifier.fillMaxWidth().heightIn(max = 220.dp)
-                    .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
-                    Text("Things Accomplished", style = MaterialTheme.typography.titleMedium)
-                    if (accomplished.isEmpty()) Text("No completed tasks yet.")
-                    accomplished.forEach { Text("✓ ${it.title}", style = MaterialTheme.typography.bodyMedium) }
-                    Spacer(Modifier.height(8.dp))
-                    Text("Notes on the Day", style = MaterialTheme.typography.titleMedium)
-                }
-            }
+            // Every category uses one native editor. Double X headings/tasks
+            // are persisted body text, never a separate read-only header or
+            // independently scrolling region that shrinks the writing area.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .background(MaterialTheme.colorScheme.background)
                     .padding(horizontal = 18.dp)
-                    .padding(top = if (noteScrollY == 0) 12.dp else 0.dp),
+                    // Never derive viewport size from the native scroll offset.
+                    // A conditional gap made scroll -> resize -> caret scroll
+                    // oscillate when the body only overflows with the IME open.
+                    .padding(top = 12.dp),
             ) {
                 NoteBodyEditor(
                     value = body,
@@ -1146,10 +1135,8 @@ private fun NoteEditorScreen(
                     onUrlTapped = { pendingUrl = it },
                     shouldRequestFocus = shouldFocusBodyEditor,
                     onFocusHandled = { shouldFocusBodyEditor = false },
-                    requestedSelection = requestedSelection,
-                    onRequestedSelectionHandled = { requestedSelection = null },
+                    requestedSelection = initialSelection,
                     initialScrollY = noteScrollY,
-                    onSelectionChanged = { requestedSelection = it },
                     onScrollChanged = { noteScrollY = it },
                     fontScale = fontScale,
                     modifier = Modifier.fillMaxSize(),

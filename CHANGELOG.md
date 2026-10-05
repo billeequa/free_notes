@@ -1,3 +1,11 @@
+# 1.4.2
+
+- Keep the shared Notes/Journal editor viewport stable at the keyboard overflow boundary.
+- Preserve native word-selection handles across updates and leave range scrolling to Android.
+- Insert Double X headings and accomplishments once as editable, standard note text.
+- Migrate older Double X entries without discarding writing; preserve edited headings and titles on reopen.
+- Document Android selection and viewport constraints and broaden device regression checks across all four sections.
+
 # 1.4.0
 
 - Add a separate Journal tab, with manual moves between Notes and Journal.
