@@ -78,9 +78,7 @@ fun NoteBodyEditor(
     shouldRequestFocus: Boolean,
     onFocusHandled: () -> Unit,
     requestedSelection: Int?,
-    onRequestedSelectionHandled: () -> Unit,
     initialScrollY: Int,
-    onSelectionChanged: (Int) -> Unit,
     onScrollChanged: (Int) -> Unit,
     fontScale: Float,
     modifier: Modifier = Modifier,
@@ -100,7 +98,6 @@ fun NoteBodyEditor(
                     fontScale = fontScale,
                 )
                 post { scrollTo(0, initialScrollY) }
-                onSelectionChangedCallback = onSelectionChanged
                 onScrollChangedCallback = onScrollChanged
                 isFocusable = true
                 isFocusableInTouchMode = true
@@ -187,13 +184,14 @@ fun NoteBodyEditor(
             }
         },
         update = { editText ->
-            editText.configureNoteTextBase(
+            // Recomposition (typing, saving, scrolling) must not reset native
+            // line/input settings or request layout while selection handles run.
+            editText.updateNoteTextAppearance(
                 textColor = textColor,
                 hintColor = hintColor,
                 linkColor = linkColor,
                 fontScale = fontScale,
             )
-            editText.onSelectionChangedCallback = onSelectionChanged
             editText.onScrollChangedCallback = onScrollChanged
             syncLinkifiedText(editText, value)
             if (shouldRequestFocus) {
@@ -209,7 +207,6 @@ fun NoteBodyEditor(
                     ).show(androidx.core.view.WindowInsetsCompat.Type.ime())
                     bringSelectionIntoView(editText)
                 }
-                onRequestedSelectionHandled()
                 onFocusHandled()
             }
         },
@@ -491,18 +488,15 @@ private fun updateOpenLinkMenu(menu: Menu, editText: EditText) {
         .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
 }
 
-private fun EditText.configureNoteTextBase(
+internal fun EditText.configureNoteTextBase(
     textColor: Int,
     hintColor: Int,
     linkColor: Int,
     fontScale: Float,
 ) {
     setBackgroundColor(Color.TRANSPARENT)
-    setTextColor(textColor)
-    setHintTextColor(hintColor)
-    setLinkTextColor(linkColor)
+    updateNoteTextAppearance(textColor, hintColor, linkColor, fontScale)
     hint = "Start writing"
-    textSize = NoteBodyTextSizeSp * fontScale
     minLines = 12
     setSingleLine(false)
     maxLines = Int.MAX_VALUE
@@ -519,6 +513,24 @@ private fun EditText.configureNoteTextBase(
     overScrollMode = TextView.OVER_SCROLL_NEVER
     isVerticalScrollBarEnabled = false
     setHorizontallyScrolling(false)
+}
+
+/** Appearance-only updates: keep Android's selection, handles, and layout alive. */
+internal fun EditText.updateNoteTextAppearance(
+    textColor: Int,
+    hintColor: Int,
+    linkColor: Int,
+    fontScale: Float,
+) {
+    if (currentTextColor != textColor) setTextColor(textColor)
+    if (currentHintTextColor != hintColor) setHintTextColor(hintColor)
+    if (linkTextColors.defaultColor != linkColor) setLinkTextColor(linkColor)
+    val pixels = android.util.TypedValue.applyDimension(
+        android.util.TypedValue.COMPLEX_UNIT_SP,
+        NoteBodyTextSizeSp * fontScale,
+        resources.displayMetrics,
+    )
+    if (textSize != pixels) setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, pixels)
 }
 
 private fun TextView.configureReaderTextBase(
@@ -543,7 +555,11 @@ private fun TextView.configureReaderTextBase(
     setHorizontallyScrolling(false)
 }
 
-private fun bringSelectionIntoView(editText: EditText) {
+internal fun bringSelectionIntoView(editText: EditText) {
+    // Only assist a caret. Android owns both ends, handle positions, and
+    // autoscrolling for a range selection; forcing its end into view interferes
+    // with word selection and handle dragging, especially during IME resizing.
+    if (editText.selectionStart != editText.selectionEnd) return
     if (editText.layout == null) return
     val textLength = editText.text?.length ?: 0
     val safeOffset = if (textLength == 0) {
@@ -593,7 +609,6 @@ private fun isLinkCompletionCharacter(character: Char): Boolean {
 }
 
 private class NoteEditText(context: android.content.Context) : EditText(context) {
-    var onSelectionChangedCallback: ((Int) -> Unit)? = null
     var onScrollChangedCallback: ((Int) -> Unit)? = null
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var touchDownY = 0f
@@ -624,11 +639,6 @@ private class NoteEditText(context: android.content.Context) : EditText(context)
         }
 
         return handled
-    }
-
-    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
-        super.onSelectionChanged(selStart, selEnd)
-        onSelectionChangedCallback?.invoke(selEnd)
     }
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {

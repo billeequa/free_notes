@@ -19,6 +19,7 @@ data class NoteDocument(
     val doubleXDate: LocalDate? = null,
     val category: NoteCategory = if (noteType == NoteType.DOUBLE_X_DAY) NoteCategory.JOURNAL else NoteCategory.NOTES,
     val journalDate: LocalDate? = doubleXDate,
+    val doubleXTemplateVersion: Int = 0,
 ) {
     val id: String = documentUri.toString()
 
@@ -44,6 +45,7 @@ data class EditableNote(
     val doubleXDate: LocalDate? = null,
     val category: NoteCategory = if (noteType == NoteType.DOUBLE_X_DAY) NoteCategory.JOURNAL else NoteCategory.NOTES,
     val journalDate: LocalDate? = doubleXDate,
+    val doubleXTemplateVersion: Int = 0,
 ) {
     fun toDocument(): NoteDocument = NoteDocument(
         documentUri = documentUri,
@@ -57,6 +59,7 @@ data class EditableNote(
         doubleXDate = doubleXDate,
         category = category,
         journalDate = journalDate,
+        doubleXTemplateVersion = doubleXTemplateVersion,
     )
 }
 
@@ -78,4 +81,5 @@ data class NoteTextContent(
     val doubleXDate: LocalDate? = null,
     val category: NoteCategory = if (noteType == NoteType.DOUBLE_X_DAY) NoteCategory.JOURNAL else NoteCategory.NOTES,
     val journalDate: LocalDate? = doubleXDate,
+    val doubleXTemplateVersion: Int = 0,
 )

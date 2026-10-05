@@ -162,16 +162,13 @@ class NotesRepository(private val context: Context) {
                 .minWithOrNull(compareBy<EditableNote> { it.createdAt.toInstant() }
                     .thenBy { JournalEntries.sequenceNumber(it.title) })
                 ?: createJournalFile(root, date, notes)
-            val updated = daily.copy(
-                title = JournalEntries.doubleXTitle(date, daily.title),
+            val updated = withDoubleXTemplate(daily.copy(
+                title = if (existing != null) daily.title else JournalEntries.doubleXTitle(date, daily.title),
                 modifiedAt = if (daily.noteType == NoteType.DOUBLE_X_DAY) daily.modifiedAt else now(),
                 noteType = NoteType.DOUBLE_X_DAY, doubleXDate = date,
                 category = NoteCategory.JOURNAL, journalDate = date,
-            )
-            writeText(updated.documentUri, NoteFileParser.serialize(NoteTextContent(
-                updated.title, updated.createdAt, updated.modifiedAt, updated.body,
-                updated.noteType, updated.doubleXDate, updated.category, updated.journalDate,
-            )))
+            ), root)
+            writeText(updated.documentUri, NoteFileParser.serialize(updated.textContent()))
             updated
         }
     }
@@ -197,7 +194,14 @@ class NotesRepository(private val context: Context) {
     suspend fun loadEditableNote(uriString: String): EditableNote? = withContext(Dispatchers.IO) {
         storageMutex.withLock {
             val file = DocumentFile.fromSingleUri(context, Uri.parse(uriString)) ?: return@withContext null
-            readEditableNote(file, isTrashed = false)
+            val original = readEditableNote(file, isTrashed = false) ?: return@withContext null
+            // Upgrade old Double X entries only when opened, under the same
+            // write lock. Persist the marker before editing so reopening never
+            // duplicates the template or replaces user-edited headings.
+            val updated = if (original.noteType == NoteType.DOUBLE_X_DAY && original.doubleXTemplateVersion < 1)
+                withDoubleXTemplate(original, requireRootDirectory()) else original
+            if (updated != original) writeText(file.uri, NoteFileParser.serialize(updated.textContent()))
+            updated
         }
     }
 
@@ -222,6 +226,7 @@ class NotesRepository(private val context: Context) {
                     doubleXDate = updated.doubleXDate,
                     category = updated.category,
                     journalDate = updated.journalDate,
+                    doubleXTemplateVersion = updated.doubleXTemplateVersion,
                 ),
             )
             writeText(
@@ -331,11 +336,24 @@ class NotesRepository(private val context: Context) {
 
     suspend fun loadTodos(): List<TodoItem> = withContext(Dispatchers.IO) {
         storageMutex.withLock {
-            val root = requireRootDirectory()
-            val file = safeFindFile(root, TodoFileParser.FILE_NAME) ?: return@withContext emptyList()
-            TodoFileParser.parse(readRecoverableText(file.uri) ?: throw IOException("Unable to read the to-do list."))
+            readTodos(requireRootDirectory())
         }
     }
+
+    private fun readTodos(root: DocumentFile): List<TodoItem> {
+        val file = safeFindFile(root, TodoFileParser.FILE_NAME) ?: return emptyList()
+        return TodoFileParser.parse(readRecoverableText(file.uri) ?: throw IOException("Unable to read the to-do list."))
+    }
+
+    private fun withDoubleXTemplate(note: EditableNote, root: DocumentFile): EditableNote {
+        if (note.doubleXTemplateVersion >= 1 || note.noteType != NoteType.DOUBLE_X_DAY || note.doubleXDate == null) return note
+        val content = DoubleXDay.withTemplate(note.textContent(), readTodos(root))
+        return note.copy(body = content.body, doubleXTemplateVersion = content.doubleXTemplateVersion)
+    }
+
+    private fun EditableNote.textContent() = NoteTextContent(
+        title, createdAt, modifiedAt, body, noteType, doubleXDate, category, journalDate, doubleXTemplateVersion,
+    )
 
     suspend fun saveTodos(items: List<TodoItem>) = withContext(Dispatchers.IO) {
         storageMutex.withLock {
@@ -396,6 +414,7 @@ class NotesRepository(private val context: Context) {
             doubleXDate = document.doubleXDate,
             category = document.category,
             journalDate = document.journalDate,
+            doubleXTemplateVersion = document.doubleXTemplateVersion,
         )
     }
 
@@ -419,6 +438,7 @@ class NotesRepository(private val context: Context) {
             doubleXDate = parsed.doubleXDate,
             category = parsed.category,
             journalDate = parsed.journalDate,
+            doubleXTemplateVersion = parsed.doubleXTemplateVersion,
         )
     }
 
