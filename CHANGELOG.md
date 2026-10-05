@@ -1,3 +1,9 @@
+# 1.4.3
+
+- Add five font-scaled lines of scrollable space after note text, without saving extra newlines.
+- Keep the viewport edge-to-edge and the gesture bar transparent; no fixed bottom ribbon.
+- Preserve native selection/caret handling and verify clearance across keyboard-height and text-length transitions.
+
 # 1.4.2
 
 - Keep the shared Notes/Journal editor viewport stable at the keyboard overflow boundary.

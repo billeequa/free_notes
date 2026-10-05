@@ -30,6 +30,7 @@ import androidx.core.text.util.LinkifyCompat
 private const val OpenLinkMenuItemId = 0x706c6169
 private const val NoteBodyTextSizeSp = 18f
 private const val NoteBodyLineSpacingMultiplier = 1.15f
+private const val NoteEndSpaceLines = 5
 
 @Composable
 fun TitleEditor(
@@ -97,8 +98,6 @@ fun NoteBodyEditor(
                     linkColor = linkColor,
                     fontScale = fontScale,
                 )
-                post { scrollTo(0, initialScrollY) }
-                onScrollChangedCallback = onScrollChanged
                 isFocusable = true
                 isFocusableInTouchMode = true
                 isCursorVisible = true
@@ -181,9 +180,15 @@ fun NoteBodyEditor(
                         }
                     },
                 )
+            }.let { editor ->
+                createNoteScrollContainer(editor).apply {
+                    setOnScrollChangeListener { _, _, scrollY, _, _ -> onScrollChanged(scrollY) }
+                    post { scrollTo(0, initialScrollY) }
+                }
             }
         },
-        update = { editText ->
+        update = { scrollView ->
+            val editText = scrollView.getChildAt(0) as NoteEditText
             // Recomposition (typing, saving, scrolling) must not reset native
             // line/input settings or request layout while selection handles run.
             editText.updateNoteTextAppearance(
@@ -192,7 +197,8 @@ fun NoteBodyEditor(
                 linkColor = linkColor,
                 fontScale = fontScale,
             )
-            editText.onScrollChangedCallback = onScrollChanged
+            scrollView.updateNoteEndSpace(editText)
+            scrollView.setOnScrollChangeListener { _, _, scrollY, _, _ -> onScrollChanged(scrollY) }
             syncLinkifiedText(editText, value)
             if (shouldRequestFocus) {
                 val targetSelection = requestedSelection
@@ -211,6 +217,32 @@ fun NoteBodyEditor(
             }
         },
     )
+}
+
+/**
+ * A document-height editor inside an edge-to-edge scrolling viewport. The five
+ * line tail is UI space, never newlines in the saved note. Padding belongs to
+ * the ScrollView, with clipping OFF, so text can still draw all the way behind
+ * the transparent gesture bar while scrolling. Padding the EditText or its
+ * Compose parent instead would reserve a permanent blank ribbon.
+ */
+internal fun createNoteScrollContainer(editor: EditText): ScrollView = ScrollView(editor.context).apply {
+    isFillViewport = true
+    clipToPadding = false
+    setBackgroundColor(Color.TRANSPARENT)
+    overScrollMode = TextView.OVER_SCROLL_NEVER
+    isVerticalScrollBarEnabled = false
+    addView(editor, FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+    ))
+    updateNoteEndSpace(editor)
+}
+
+internal fun ScrollView.updateNoteEndSpace(editor: EditText) {
+    // Derive only from typography, never scroll position, text length or IME
+    // visibility. Unchanged updates must not request layout (1.4.2 regression).
+    val endSpace = editor.lineHeight * NoteEndSpaceLines
+    if (paddingBottom != endSpace) setPadding(0, 0, 0, endSpace)
 }
 
 @Composable
@@ -497,7 +529,9 @@ internal fun EditText.configureNoteTextBase(
     setBackgroundColor(Color.TRANSPARENT)
     updateNoteTextAppearance(textColor, hintColor, linkColor, fontScale)
     hint = "Start writing"
-    minLines = 12
+    // The scroll container fills short documents; do not force a synthetic
+    // 12-line document that would overflow a small keyboard-visible viewport.
+    minLines = 1
     setSingleLine(false)
     maxLines = Int.MAX_VALUE
     gravity = Gravity.TOP or Gravity.START
@@ -609,7 +643,6 @@ private fun isLinkCompletionCharacter(character: Char): Boolean {
 }
 
 private class NoteEditText(context: android.content.Context) : EditText(context) {
-    var onScrollChangedCallback: ((Int) -> Unit)? = null
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var touchDownY = 0f
     private var userIsDragging = false
@@ -639,11 +672,6 @@ private class NoteEditText(context: android.content.Context) : EditText(context)
         }
 
         return handled
-    }
-
-    override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
-        super.onScrollChanged(l, t, oldl, oldt)
-        onScrollChangedCallback?.invoke(t)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {

@@ -1050,6 +1050,8 @@ private fun NoteEditorScreen(
         // the Android bar itself is transparent. TopAppBar handles the status
         // bar; the content below consumes toolbar padding and handles only IME.
         // Never add navigationBarsPadding/safeDrawingPadding to this viewport.
+        // Final-line clearance is scrollable tail space INSIDE NoteBodyEditor,
+        // not Scaffold/system-bar padding or an opaque overlay.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
