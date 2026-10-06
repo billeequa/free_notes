@@ -1,9 +1,7 @@
-# JNotes 1.4.3
+# JNotes 1.4.4
 
-Add five lines of scrollable empty space beneath a note's last line. The space scales with the note font and applies to Notes, Journal, and Double X Day. It is UI spacing; saved/exported note text receives no extra newlines.
+- To Do: the original checkbox shows a lighter check while the item slides aside and awaits the green completion confirmation. Tapping the original box again or dismissing confirmation restores the empty checkbox. The task is only completed after confirmation.
+- Notes, Journal, and Double X Day: Android Back while writing hides the keyboard and cursor, saves pending changes, and keeps the note open at your scroll position for reading. Scroll without reopening editing. Tap text to resume writing at that location; Back from reading returns to the list.
+- Preserve transparent gesture navigation and the five-line scrollable space below note text. Failed saves retain the draft and Retry status.
 
-The native editor sits in a full-height, transparent scroll container with padding clipping disabled. Text still draws behind Android's transparent gesture-navigation bar while scrolling, and the last line can scroll safely above it. The Scaffold/system-bar inset configuration remains intact; no fixed bottom ribbon or opaque overlay is added.
-
-Preserve native selection handling and the stable viewport fix. Regression tests cover end clearance, font scaling, text preservation, and transitions between short/long documents and keyboard-sized viewports. To Do and Ebooks behavior is unchanged.
-
-Install jnotes-15.apk over the existing app. It uses the same signing key; no uninstall is needed.
+Install jnotes-16.apk over your existing 1.3.4 or later app. The existing signing key and application ID are retained; no uninstall is needed.

@@ -113,3 +113,28 @@ ownership. Device checks above still verify actual Gboard and touch handles.
   and tail padding must remain stable. Select words and drag both handles across
   lines, then type at the end; Gboard must leave the caret visible.
 - Switch tabs and rotate; restore document scrolling. To Do swipes stay unchanged.
+
+## Pending checkboxes and Back-to-reading / 1.4.4
+
+- Tap an open task checkbox: while the row slides right, the original checkbox
+  shows a lighter check and the left green confirmation appears. Tap the original
+  checkbox again, tap the card, or swipe to dismiss: the box returns to empty and
+  no completion timestamp or Double X accomplishment is recorded.
+- Swipe left for right-side confirmation: verify the same lighter pending check.
+  Confirm either side: verify completed appearance, persistence, and timestamp.
+  Check TalkBack announces Awaiting confirmation rather than Completed.
+- In Notes, Journal, and Double X, type and press system Back once. The keyboard,
+  caret, and selection handles disappear, the note stays open, and scrolling
+  continues from the same position. Dragging text must not refocus the field.
+- Tap another word to resume: cursor appears where tapped and Gboard opens.
+  Press Back to read, then Back again to return to the correct list. Repeat with
+  the keyboard already hidden, gesture navigation and three-button navigation,
+  and a physical keyboard. A canceled Back gesture must leave editing intact.
+- Select a word/range and press Back. Return to reading without stuck handles.
+  Reenter editing and verify native selection, copy/paste, and caret scrolling.
+- Force a save failure, then Back to reading: draft remains visible with Retry.
+  Another Back cannot exit until saving succeeds. Restore access and retry.
+- Recheck five-line tail spacing and transparent gesture bar on long notes.
+
+Native framework tests cover focus/cursor clearing, retained document/scroll,
+reading drags, and tapping to resume. Actual IME/system Back needs device checks.

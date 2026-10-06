@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
@@ -94,6 +96,7 @@ import com.plainnotes.android.data.TodoItem
 import java.time.ZoneId
 import java.time.LocalDate
 import com.plainnotes.android.ui.components.NoteBodyEditor
+import com.plainnotes.android.ui.components.NoteEditorFocusController
 import com.plainnotes.android.ui.theme.PlainNotesTheme
 import com.plainnotes.android.ui.theme.plainNotesTopAppBarColors
 import java.time.OffsetDateTime
@@ -977,7 +980,7 @@ private fun NoteEditorRoute(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun NoteEditorScreen(
     session: NoteEditorSession,
@@ -1010,8 +1013,30 @@ private fun NoteEditorScreen(
     }
     var noteScrollY by rememberSaveable(note.documentUri.toString()) { mutableStateOf(0) }
     var showNoteInfo by remember { mutableStateOf(false) }
+    val editorFocus = remember(note.documentUri.toString()) { NoteEditorFocusController() }
+    var isBodyEditing by remember(note.documentUri.toString()) { mutableStateOf(false) }
+    val imeVisible = WindowInsets.isImeVisible
+    var imeWasVisible by remember(note.documentUri.toString()) { mutableStateOf(false) }
 
     suspend fun saveIfNeeded(): Boolean = session.save(onSave)
+
+    fun readNote() {
+        shouldFocusBodyEditor = false
+        editorFocus.stopEditing()
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+        isBodyEditing = false
+        // Leaving editing does not depend on provider latency or save success.
+        // A failed save keeps the draft and visible Retry status in this note.
+        scope.launch { saveIfNeeded() }
+    }
+
+    // Android 13+ may consume Back in the IME before BackHandler or
+    // onKeyPreIme sees it. Observe the visible -> hidden transition too.
+    LaunchedEffect(imeVisible) {
+        if (imeWasVisible && !imeVisible && isBodyEditing) readNote()
+        imeWasVisible = imeVisible
+    }
 
     LaunchedEffect(title, body) {
         if (title == lastSavedTitle && body == lastSavedBody) {
@@ -1022,7 +1047,9 @@ private fun NoteEditorScreen(
     }
 
     BackHandler {
-        scope.launch {
+        if (isBodyEditing) {
+            readNote()
+        } else scope.launch {
             if (saveIfNeeded()) {
                 keyboardController?.hide()
                 focusManager.clearFocus()
@@ -1141,6 +1168,9 @@ private fun NoteEditorScreen(
                     initialScrollY = noteScrollY,
                     onScrollChanged = { noteScrollY = it },
                     fontScale = fontScale,
+                    focusController = editorFocus,
+                    onEditingChanged = { isBodyEditing = it },
+                    onBackToReading = { readNote() },
                     modifier = Modifier.fillMaxSize(),
                 )
 
@@ -1287,8 +1317,8 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("The notes editor extends beneath Android’s transparent gesture-navigation bar again. Keyboard spacing remains in place while writing.")
-            Text("All enabled tabs now fit across the screen: Ebooks, Notes, Journal, To Do. Notes opens by default. Tap a tab or swipe the bar to change pages. To Do keeps its existing completion and navigation gestures.")
+            Text("To Do shows a lighter checked box while completion awaits the green confirmation. Tap the original box again to cancel.")
+            Text("While writing a note, Android Back hides the keyboard and cursor so you can scroll and read. Tap text to keep writing; press Back again to return to the list. Applies to Notes, Journal, and Double X Day.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )
