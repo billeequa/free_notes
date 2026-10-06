@@ -11,10 +11,12 @@ import android.text.style.URLSpan
 import android.text.util.Linkify
 import android.view.ActionMode
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ScrollView
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.text.util.LinkifyCompat
+import androidx.core.view.WindowInsetsCompat
 
 private const val OpenLinkMenuItemId = 0x706c6169
 private const val NoteBodyTextSizeSp = 18f
@@ -82,6 +85,9 @@ fun NoteBodyEditor(
     initialScrollY: Int,
     onScrollChanged: (Int) -> Unit,
     fontScale: Float,
+    focusController: NoteEditorFocusController,
+    onEditingChanged: (Boolean) -> Unit,
+    onBackToReading: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val textColor = MaterialTheme.colorScheme.onBackground.toArgb()
@@ -100,7 +106,12 @@ fun NoteBodyEditor(
                 )
                 isFocusable = true
                 isFocusableInTouchMode = true
-                isCursorVisible = true
+                isCursorVisible = false
+                setOnFocusChangeListener { _, focused ->
+                    isCursorVisible = focused
+                    onEditingChanged(focused)
+                }
+                this.onBackToReading = onBackToReading
                 showSoftInputOnFocus = true
                 inputType = InputType.TYPE_CLASS_TEXT or
                     InputType.TYPE_TEXT_FLAG_MULTI_LINE or
@@ -182,6 +193,7 @@ fun NoteBodyEditor(
                 )
             }.let { editor ->
                 createNoteScrollContainer(editor).apply {
+                    focusController.attach(editor, this)
                     setOnScrollChangeListener { _, _, scrollY, _, _ -> onScrollChanged(scrollY) }
                     post { scrollTo(0, initialScrollY) }
                 }
@@ -189,6 +201,12 @@ fun NoteBodyEditor(
         },
         update = { scrollView ->
             val editText = scrollView.getChildAt(0) as NoteEditText
+            focusController.attach(editText, scrollView)
+            editText.onBackToReading = onBackToReading
+            editText.setOnFocusChangeListener { _, focused ->
+                editText.isCursorVisible = focused
+                onEditingChanged(focused)
+            }
             // Recomposition (typing, saving, scrolling) must not reset native
             // line/input settings or request layout while selection handles run.
             editText.updateNoteTextAppearance(
@@ -227,6 +245,11 @@ fun NoteBodyEditor(
  * Compose parent instead would reserve a permanent blank ribbon.
  */
 internal fun createNoteScrollContainer(editor: EditText): ScrollView = ScrollView(editor.context).apply {
+    // Give focus somewhere to go on Back. Otherwise clearFocus can immediately
+    // hand it back to the only focusable child and leave the caret visible.
+    isFocusable = true
+    isFocusableInTouchMode = true
+    descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
     isFillViewport = true
     clipToPadding = false
     setBackgroundColor(Color.TRANSPARENT)
@@ -236,6 +259,29 @@ internal fun createNoteScrollContainer(editor: EditText): ScrollView = ScrollVie
         FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
     ))
     updateNoteEndSpace(editor)
+}
+
+/** Keep the same native document/viewport when switching from writing to reading. */
+class NoteEditorFocusController {
+    private var editor: EditText? = null
+    private var viewport: ScrollView? = null
+
+    internal fun attach(editor: EditText, viewport: ScrollView) {
+        this.editor = editor
+        this.viewport = viewport
+    }
+
+    fun stopEditing() {
+        val field = editor ?: return
+        val scrollView = viewport ?: return
+        val scrollY = scrollView.scrollY
+        field.isCursorVisible = false
+        scrollView.requestFocus()
+        field.clearFocus()
+        androidx.core.view.ViewCompat.getWindowInsetsController(field)
+            ?.hide(WindowInsetsCompat.Type.ime())
+        scrollView.scrollTo(0, scrollY)
+    }
 }
 
 internal fun ScrollView.updateNoteEndSpace(editor: EditText) {
@@ -642,22 +688,62 @@ private fun isLinkCompletionCharacter(character: Char): Boolean {
     return character.isWhitespace() || character in listOf(',', ';', '!', '?', ')', ']', '}', '"', '\'')
 }
 
-private class NoteEditText(context: android.content.Context) : EditText(context) {
+internal class NoteEditText(context: android.content.Context) : EditText(context) {
+    var onBackToReading: (() -> Unit)? = null
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var touchDownY = 0f
     private var userIsDragging = false
+    private var readingTouch = false
+
+    // Older Android versions deliver Back before the IME consumes it. On
+    // newer gesture-navigation versions the screen observes IME dismissal.
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && hasFocus() && onBackToReading != null) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                keyDispatcherState?.startTracking(event, this)
+                return true
+            }
+            if (event.action == KeyEvent.ACTION_UP) {
+                keyDispatcherState?.handleUpEvent(event)
+                if (event.isTracking && !event.isCanceled) {
+                    onBackToReading?.invoke()
+                    return true
+                }
+            }
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 touchDownY = event.y
                 userIsDragging = false
+                readingTouch = !hasFocus()
             }
 
             MotionEvent.ACTION_MOVE -> {
                 if (!userIsDragging && kotlin.math.abs(event.y - touchDownY) > touchSlop) {
                     userIsDragging = true
                 }
+            }
+        }
+
+        // A reading-mode scroll must not focus EditText on ACTION_DOWN.
+        // ScrollView intercepts drags; only a finished tap resumes editing.
+        if (readingTouch) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_UP -> {
+                    readingTouch = false
+                    if (userIsDragging) return true
+                    requestFocus()
+                    isCursorVisible = true
+                    val down = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_DOWN }
+                    super.onTouchEvent(down)
+                    down.recycle()
+                }
+                MotionEvent.ACTION_CANCEL -> { readingTouch = false; return true }
+                else -> return true
             }
         }
 

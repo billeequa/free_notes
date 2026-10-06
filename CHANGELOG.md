@@ -1,3 +1,10 @@
+# 1.4.4
+
+- Show a lighter checked To-Do checkbox while completion awaits confirmation; canceling restores the empty box.
+- Android Back switches writing to reading in Notes, Journal, and Double X Day, hiding the keyboard, cursor, and selection handles while keeping the note and scroll position.
+- Scroll without resuming editing; tap text to place the cursor and write again. Back from reading saves and returns to the list.
+- Preserve the transparent gesture bar, five-line end clearance, and failed-save draft/Retry behavior.
+
 # 1.4.3
 
 - Add five font-scaled lines of scrollable space after note text, without saving extra newlines.

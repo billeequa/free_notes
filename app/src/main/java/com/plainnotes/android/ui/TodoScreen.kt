@@ -19,6 +19,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.VerticalAlignBottom
 import androidx.compose.foundation.combinedClickable
@@ -171,6 +172,7 @@ fun TodoScreen(
                     val done = item.completedAt != null
                     val revealed = revealedId == item.id && !done
                     val checkboxPending = checkboxConfirmId == item.id && !done
+                    val completionPending = revealed || checkboxPending
                     val revealWidth = with(LocalDensity.current) { 64.dp.toPx() }
                     var dragOffset by remember(item.id) { mutableStateOf<Float?>(null) }
                     var gestureStartedWithReveal by remember(item.id) { mutableStateOf(false) }
@@ -231,12 +233,29 @@ fun TodoScreen(
                                 val color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(
-                                        checked = done,
+                                        checked = done || completionPending,
                                         onCheckedChange = {
                                             if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
+                                            else if (completionPending) { revealedId = null; checkboxConfirmId = null }
                                             else { revealedId = null; checkboxConfirmId = item.id }
                                         },
-                                        modifier = Modifier.semantics { contentDescription = if (done) "Reopen: ${item.title}" else "Show completion confirmation: ${item.title}" },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = if (completionPending)
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                                            else MaterialTheme.colorScheme.primary,
+                                        ),
+                                        modifier = Modifier.semantics {
+                                            contentDescription = when {
+                                                done -> "Reopen: ${item.title}"
+                                                completionPending -> "Cancel completion: ${item.title}"
+                                                else -> "Show completion confirmation: ${item.title}"
+                                            }
+                                            stateDescription = when {
+                                                done -> "Completed"
+                                                completionPending -> "Awaiting confirmation"
+                                                else -> "Incomplete"
+                                            }
+                                        },
                                     )
                                 Text(
                                     modifier = Modifier.weight(1f),

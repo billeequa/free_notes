@@ -6,12 +6,14 @@ import android.text.InputType
 import android.view.ContextThemeWrapper
 import android.view.View
 import android.view.ViewGroup
+import android.view.MotionEvent
 import android.widget.EditText
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -21,6 +23,71 @@ import org.robolectric.annotation.GraphicsMode
 // not change with text size and cannot verify line-scaled end spacing.
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NoteEditorNativeTest {
+    @Test fun returningToReadingKeepsDocumentAndScrollAndAllowsFocusAgain() {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val field = NoteEditText(activity).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            configureNoteTextBase(Color.BLACK, Color.GRAY, Color.BLUE, 1f)
+            setText((1..40).joinToString("\n") { "Line $it has selectable words" })
+            setOnFocusChangeListener { _, focused -> isCursorVisible = focused }
+        }
+        val viewport = createNoteScrollContainer(field)
+        activity.setContentView(viewport)
+        viewport.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY))
+        viewport.layout(0, 0, 300, 400)
+        val controller = NoteEditorFocusController().apply { attach(field, viewport) }
+        field.requestFocus()
+        field.setSelection(5, 25)
+        viewport.scrollTo(0, 200)
+        val writing = field.text.toString()
+        controller.stopEditing()
+        assertFalse(field.hasFocus())
+        assertFalse(field.isCursorVisible)
+        assertTrue(viewport.hasFocus())
+        assertEquals(200, viewport.scrollY)
+        assertEquals(writing, field.text.toString())
+        viewport.scrollTo(0, 300)
+        assertFalse(field.hasFocus())
+        assertFalse(field.isCursorVisible)
+        field.requestFocus()
+        assertTrue(field.hasFocus())
+        assertTrue(field.isCursorVisible)
+        assertEquals(writing, field.text.toString())
+    }
+
+    @Test fun readingDragDoesNotResumeEditingButTapDoes() {
+        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val field = NoteEditText(activity).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            configureNoteTextBase(Color.BLACK, Color.GRAY, Color.BLUE, 1f)
+            setText("Tap these words to resume writing")
+            setOnFocusChangeListener { _, focused -> isCursorVisible = focused }
+        }
+        val viewport = createNoteScrollContainer(field)
+        activity.setContentView(viewport)
+        viewport.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY))
+        viewport.layout(0, 0, 300, 400)
+        val controller = NoteEditorFocusController().apply { attach(field, viewport) }
+        controller.stopEditing()
+        fun touch(action: Int, y: Float) {
+            val event = MotionEvent.obtain(0, 100, action, 30f, y, 0)
+            field.onTouchEvent(event)
+            event.recycle()
+        }
+        touch(MotionEvent.ACTION_DOWN, 100f)
+        touch(MotionEvent.ACTION_MOVE, 20f)
+        touch(MotionEvent.ACTION_UP, 20f)
+        assertFalse(field.hasFocus())
+        assertFalse(field.isCursorVisible)
+        touch(MotionEvent.ACTION_DOWN, 10f)
+        touch(MotionEvent.ACTION_UP, 10f)
+        assertTrue(field.hasFocus())
+        assertTrue(field.isCursorVisible)
+        assertTrue("Tap must place the cursor near the tapped text", field.selectionStart < field.length())
+    }
+
     private class TrackingEditText : EditText(ContextThemeWrapper(
         RuntimeEnvironment.getApplication(), android.R.style.Theme_Material_Light_NoActionBar,
     )) {
