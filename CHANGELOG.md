@@ -1,3 +1,7 @@
+# 1.4.5
+
+Add combinable urgent, important, and long-term to-do flags, distinct theme-aware task colors retained after completion, and creation/edit checkboxes. Preserve legacy black flags and task history while upgrading the to-do file format.
+
 # 1.4.4
 
 - Show a lighter checked To-Do checkbox while completion awaits confirmation; canceling restores the empty box.

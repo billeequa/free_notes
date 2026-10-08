@@ -138,3 +138,13 @@ ownership. Device checks above still verify actual Gboard and touch handles.
 
 Native framework tests cover focus/cursor clearing, retained document/scroll,
 reading drags, and tapping to resume. Actual IME/system Back needs device checks.
+
+
+## To-do flags (1.4.5)
+
+- In each of the ten themes, create tasks with all seven nonempty flag combinations and one unflagged task. Check that all colors differ and text remains readable; emoji order is always 🚨 ❗ 🎯.
+- Long-press and the three-dot menu must offer the same three toggles, with checks for selected options. Toggle a flag twice to remove it without changing timestamps or other flags.
+- Edit flags using dialog checkboxes, cancel flag-only edits and confirm discard, then reopen to verify the saved selection. Creation has checkboxes and no “Save and add another.”
+- Complete and reopen each combination. Task colors and emoji must stay unchanged. The Flagged filter includes emoji flags and legacy black flags.
+- Open a format-1 fixture with both legacy flags and completed tasks. Edit text without changing its black flag; choose an emoji to replace it, or use Remove legacy flag. Reload after saving and verify IDs, descriptions, and timestamps.
+- Rotate while the add/edit dialog is open; flags and draft text must survive. Failed saves retain selected flags for retry.

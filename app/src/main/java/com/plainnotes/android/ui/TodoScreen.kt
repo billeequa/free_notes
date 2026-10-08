@@ -3,6 +3,7 @@ package com.plainnotes.android.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
@@ -36,6 +37,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
@@ -45,6 +48,11 @@ import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.unit.dp
 import com.plainnotes.android.data.TodoItem
+import com.plainnotes.android.data.TodoFlag
+import com.plainnotes.android.data.flagMask
+import com.plainnotes.android.data.flagSymbols
+import com.plainnotes.android.data.isFlagged
+import com.plainnotes.android.data.withFlag
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -62,7 +70,7 @@ fun TodoScreen(
     val allItems = state.todos.sortedBy { it.addedAt.toInstant() }
     var filter by rememberSaveable { mutableStateOf("Normal") }
     val filteredItems = allItems.filter {
-        when (filter) { "Open" -> it.completedAt == null; "Completed" -> it.completedAt != null; "Flagged" -> it.flagged; else -> true }
+        when (filter) { "Open" -> it.completedAt == null; "Completed" -> it.completedAt != null; "Flagged" -> it.isFlagged; else -> true }
     }
     val completed = allItems.filter { it.completedAt != null }.sortedBy { it.completedAt!!.toInstant() }
     val open = allItems.filter { it.completedAt == null }
@@ -170,6 +178,7 @@ fun TodoScreen(
                 }
                 items(items, key = { it.id }) { item ->
                     val done = item.completedAt != null
+                    val flagColors = todoFlagColors(item.flags, MaterialTheme.colorScheme.surface.luminance() < 0.5f)
                     val revealed = revealedId == item.id && !done
                     val checkboxPending = checkboxConfirmId == item.id && !done
                     val completionPending = revealed || checkboxPending
@@ -228,9 +237,13 @@ fun TodoScreen(
                                 gestureStartedWithReveal = false
                             },
                             onDragCancel = { dragOffset = null; gestureStartedWithReveal = false },
+                        ), colors = CardDefaults.cardColors(
+                            containerColor = flagColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = flagColors?.content ?: MaterialTheme.colorScheme.onSurface,
                         )) {
                             Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                                val color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                val color = if (done) flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant
+                                    else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(
                                         checked = done || completionPending,
@@ -259,7 +272,7 @@ fun TodoScreen(
                                     )
                                 Text(
                                     modifier = Modifier.weight(1f),
-                                    text = "${if (item.flagged) "⚑ " else ""}${item.title}",
+                                    text = listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "),
                                     style = MaterialTheme.typography.titleMedium,
                                     color = color,
                                 )
@@ -268,12 +281,22 @@ fun TodoScreen(
                                 }
                                 if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.height(6.dp))
-                                Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant)
                                 DropdownMenu(expanded = menuId == item.id, onDismissRequest = { menuId = null }) {
                                     DropdownMenuItem(text = { Text("Edit") }, onClick = { menuId = null; editingId = item.id })
-                                    DropdownMenuItem(text = { Text(if (item.flagged) "Remove flag" else "Flag") }, onClick = {
+                                    TodoFlag.entries.forEach { flag ->
+                                        DropdownMenuItem(
+                                            text = { Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}") },
+                                            trailingIcon = { if (flag in item.flags) Icon(Icons.Rounded.Check, "Selected") },
+                                            onClick = {
+                                                menuId = null
+                                                change { todos -> todos.map { if (it.id == item.id) it.withFlag(flag) else it } }
+                                            },
+                                        )
+                                    }
+                                    if (item.flagged) DropdownMenuItem(text = { Text("Remove legacy flag") }, onClick = {
                                         menuId = null
-                                        change { todos -> todos.map { if (it.id == item.id) it.copy(flagged = !it.flagged) else it } }
+                                        change { todos -> todos.map { if (it.id == item.id) it.copy(flagged = false) else it } }
                                     })
                                     DropdownMenuItem(text = { Text(if (done) "Mark incomplete" else "Show completion check") }, onClick = {
                                         menuId = null
@@ -301,14 +324,18 @@ fun TodoScreen(
     }
     if (creating || editingId != null) {
         val original = allItems.find { it.id == editingId }
-        TodoEditDialog(original, onDismiss = { creating = false; editingId = null }) { title, description, addAnother ->
-            val item = original?.copy(title = title, description = description) ?: TodoItem(id = newTaskId, title = title, description = description)
+        TodoEditDialog(original, onDismiss = { creating = false; editingId = null }) { title, description, flags ->
+            val item = TodoItem(id = newTaskId, title = title, description = description, flags = flags)
             val saved = viewModel.changeTodos { todos ->
-                if (todos.none { it.id == item.id }) todos + item else todos.map { if (it.id == item.id) it.copy(title = title, description = description) else it }
+                if (original == null) {
+                    if (todos.none { it.id == item.id }) todos + item else todos
+                } else todos.map { if (it.id == original.id) it.copy(
+                    title = title, description = description, flags = flags,
+                    flagged = it.flagged && flags.isEmpty(),
+                ) else it }
             }
             if (saved) {
-                if (addAnother) newTaskId = java.util.UUID.randomUUID().toString()
-                creating = addAnother
+                creating = false
                 editingId = null
                 if (original == null) {
                     filter = "Normal"
@@ -335,34 +362,29 @@ fun TodoScreen(
 private fun TodoEditDialog(
     original: TodoItem?,
     onDismiss: () -> Unit,
-    onSave: suspend (String, String, Boolean) -> Boolean,
+    onSave: suspend (String, String, Set<TodoFlag>) -> Boolean,
 ) {
     var title by rememberSaveable(original?.id) { mutableStateOf(original?.title.orEmpty()) }
     var description by rememberSaveable(original?.id) { mutableStateOf(original?.description.orEmpty()) }
+    var flagMask by rememberSaveable(original?.id) { mutableStateOf(original?.flags?.flagMask() ?: 0) }
     var detailsExpanded by rememberSaveable(original?.id) { mutableStateOf(!original?.description.isNullOrBlank()) }
     var discardConfirmation by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val titleFocus = remember { FocusRequester() }
-    var focusRequest by remember { mutableStateOf(0) }
     fun requestDismiss() {
         if (saving) return
-        if (title != original?.title.orEmpty() || description != original?.description.orEmpty()) discardConfirmation = true
+        if (title != original?.title.orEmpty() || description != original?.description.orEmpty() ||
+            flagMask != (original?.flags?.flagMask() ?: 0)) discardConfirmation = true
         else onDismiss()
     }
-    fun save(addAnother: Boolean) {
+    fun save() {
         if (saving || title.isBlank()) return
         saving = true
         scope.launch {
             try {
-                error = !onSave(title.trim(), description, addAnother)
-                if (!error && addAnother) {
-                    title = ""
-                    description = ""
-                    detailsExpanded = false
-                    focusRequest += 1
-                }
+                error = !onSave(title.trim(), description, TodoFlag.entries.filter { flagMask and it.bit != 0 }.toSet())
             } finally { saving = false }
         }
     }
@@ -371,26 +393,36 @@ private fun TodoEditDialog(
         title = { Text(if (original == null) "Add to-do" else "Edit to-do") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                LaunchedEffect(focusRequest) {
+                LaunchedEffect(Unit) {
                     withFrameNanos { }
                     titleFocus.requestFocus()
                 }
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true, enabled = !saving,
                     modifier = Modifier.focusRequester(titleFocus),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { save(false) }))
+                    keyboardActions = KeyboardActions(onDone = { save() }))
                 TextButton(enabled = !saving, onClick = { detailsExpanded = !detailsExpanded }) {
                     Text(if (detailsExpanded) "Hide description" else "Add description")
                 }
                 if (detailsExpanded) OutlinedTextField(description, { description = it },
                     label = { Text("Description (optional)") }, minLines = 3, maxLines = 8, enabled = !saving)
                 if (error) Text("Could not save. Your text is still here; try again.", color = MaterialTheme.colorScheme.error)
-                if (original == null) TextButton(enabled = title.isNotBlank() && !saving, onClick = { save(true) }) {
-                    Text("Save and add another")
+                Column {
+                    TodoFlag.entries.forEach { flag ->
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(value = flagMask and flag.bit != 0, enabled = !saving, role = Role.Checkbox) {
+                                flagMask = flagMask xor flag.bit
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = flagMask and flag.bit != 0, onCheckedChange = null, enabled = !saving)
+                            Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}", Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                        }
+                    }
                 }
             }
         },
-        confirmButton = { TextButton(enabled = title.isNotBlank() && !saving, onClick = { save(false) }) {
+        confirmButton = { TextButton(enabled = title.isNotBlank() && !saving, onClick = { save() }) {
             Text(if (saving) "Saving…" else "Save")
         } },
         dismissButton = { TextButton(enabled = !saving, onClick = ::requestDismiss) { Text("Cancel") } },
@@ -398,7 +430,7 @@ private fun TodoEditDialog(
     if (discardConfirmation) AlertDialog(
         onDismissRequest = { discardConfirmation = false },
         title = { Text("Discard changes?") },
-        text = { Text("Your unsaved title and description will be discarded.") },
+        text = { Text("Your unsaved title, description, and flags will be discarded.") },
         confirmButton = { TextButton(onClick = { discardConfirmation = false; onDismiss() }) { Text("Discard") } },
         dismissButton = { TextButton(onClick = { discardConfirmation = false }) { Text("Keep editing") } },
     )
