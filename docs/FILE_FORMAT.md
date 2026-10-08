@@ -63,17 +63,18 @@ The timestamp is the note's creation time and does not change when the title cha
 and included in ZIP exports. It is a UTF-8 text file with this versioned format:
 
 ```text
-Jnotes To-do: 1
+Jnotes To-do: 2
 
 id: 907b24eb-a5d0-4721-b2be-47c0bdeeb836
 title: Check cavity calibration
 description: Optional details
 added: 2026-09-15T09:00:00-04:00
 completed: 2026-09-15T10:00:00-04:00
-flagged: true
+flagged: false
+flags: urgent,important,long_term
 ```
 
-Every record has these six fields in order. Incomplete items have an empty
+Every format-2 record has these seven fields in order. Format-1 files with six fields remain readable; saving writes format 2. `flagged` retains the legacy black flag. `flags` is empty or a comma-separated subset of `urgent,important,long_term`, serialized in that order. Choosing an emoji flag replaces the legacy flag. Unknown flag values are rejected. Incomplete items have an empty
 `completed: ` value. IDs are stable UUIDs. Dates use ISO-8601 offsets; the UI
 shows local time. Titles and descriptions escape backslashes as `\\`, newlines
 as `\n`, and carriage returns as `\r`. Unknown versions, incomplete records,

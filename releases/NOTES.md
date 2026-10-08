@@ -1,7 +1,8 @@
-# JNotes 1.4.4
+# JNotes 1.4.5
 
-- To Do: the original checkbox shows a lighter check while the item slides aside and awaits the green completion confirmation. Tapping the original box again or dismissing confirmation restores the empty checkbox. The task is only completed after confirmation.
-- Notes, Journal, and Double X Day: Android Back while writing hides the keyboard and cursor, saves pending changes, and keeps the note open at your scroll position for reading. Scroll without reopening editing. Tap text to resume writing at that location; Back from reading returns to the list.
-- Preserve transparent gesture navigation and the five-line scrollable space below note text. Failed saves retain the draft and Retry status.
+- To Do: choose Mark urgent 🚨, Mark important ❗, and Mark as long term 🎯 from the long-press or three-dot menu. Each option toggles independently; selected options show a check.
+- Combine any flags. Emoji always appear in the order 🚨 ❗ 🎯. Each of the seven combinations has its own task color, with readable light/dark palettes across all themes. Completion retains the color and emoji.
+- Add or edit flags with checkboxes in the task dialog. These replace “Save and add another.”
+- Existing black flags remain until you remove them or choose an emoji flag. Existing task IDs, text, and completion history are preserved. New tasks use emoji flags only.
 
-Install jnotes-16.apk over your existing 1.3.4 or later app. The existing signing key and application ID are retained; no uninstall is needed.
+Install jnotes-17.apk over the existing app. The application ID and signing key are unchanged; no uninstall is needed. This update uses to-do file format 2 and reads existing format 1 files. Older app versions cannot read format 2, so keep this version or newer after saving to-do changes.

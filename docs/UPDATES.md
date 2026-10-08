@@ -4,7 +4,7 @@ Settings includes Check for updates, Download and install when a newer release i
 
 ## Existing notes and tasks
 
-The application ID remains com.plainnotes.android. The selected-folder preference, to_do_jnotes.txt filename, and Jnotes To-do: 1 format are unchanged. An ordinary same-key update preserves the folder permission and loads existing items. No migration or empty replacement is written at startup. Parse failures are shown without overwriting the original. A fixed 1.2-format fixture tests IDs, descriptions, flags, and completion history.
+The application ID remains com.plainnotes.android. The selected-folder preference and to_do_jnotes.txt filename are unchanged. Version 1.4.5 reads Jnotes To-do: 1 and writes format 2 with combinable emoji flags. Older app versions cannot read format 2; do not downgrade after saving to-do changes. An ordinary same-key update preserves the folder permission and loads existing items. No migration or empty replacement is written at startup. Parse failures are shown without overwriting the original. A fixed 1.2-format fixture tests IDs, descriptions, flags, and completion history.
 
 Old GitHub Actions debug builds used disposable signing keys. The old private key cannot be reconstructed from an APK. If Android rejects an upgrade from 1.2 due to a different signature, verify the selected folder contains every saved note and to_do_jnotes.txt and copy that folder before any uninstall. After reinstalling, select the SAME folder, not a new empty folder. External text files survive uninstall; internal drafts and settings do not. Do not uninstall while a save is failing.
 

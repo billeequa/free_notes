@@ -10,12 +10,14 @@ data class TodoItem(
     val addedAt: OffsetDateTime = OffsetDateTime.now(),
     val completedAt: OffsetDateTime? = null,
     val flagged: Boolean = false,
+    val flags: Set<TodoFlag> = emptySet(),
 )
 
 /** Versioned, readable UTF-8. Escaping keeps multiline descriptions inside one record. */
 object TodoFileParser {
     const val FILE_NAME = "to_do_jnotes.txt"
-    private const val HEADER = "Jnotes To-do: 1"
+    private const val LEGACY_HEADER = "Jnotes To-do: 1"
+    private const val HEADER = "Jnotes To-do: 2"
 
     fun serialize(items: List<TodoItem>): String = buildString {
         appendLine(HEADER)
@@ -27,15 +29,18 @@ object TodoFileParser {
             appendLine("added: ${item.addedAt}")
             appendLine("completed: ${item.completedAt ?: ""}")
             appendLine("flagged: ${item.flagged}")
+            appendLine("flags: ${TodoFlag.entries.filter { it in item.flags }.joinToString(",") { it.key }}")
         }
     }
 
     fun parse(text: String): List<TodoItem> {
         val lines = text.replace("\r\n", "\n").trimEnd('\n').split('\n')
-        require(lines.firstOrNull() == HEADER) { "Unrecognized to-do file; the original has not been changed." }
+        val legacy = lines.firstOrNull() == LEGACY_HEADER
+        require(legacy || lines.firstOrNull() == HEADER) { "Unrecognized to-do file; the original has not been changed." }
         val records = lines.drop(1).filter { it.isNotEmpty() }
-        require(records.size % 6 == 0) { "Incomplete to-do record; the original has not been changed." }
-        val items = records.chunked(6).map { record ->
+        val fields = if (legacy) 6 else 7
+        require(records.size % fields == 0) { "Incomplete to-do record; the original has not been changed." }
+        val items = records.chunked(fields).map { record ->
             fun field(index: Int, key: String): String {
                 require(record[index].startsWith("$key: ")) { "Invalid to-do field: $key" }
                 return record[index].removePrefix("$key: ")
@@ -47,6 +52,11 @@ object TodoFileParser {
                 addedAt = OffsetDateTime.parse(field(3, "added")),
                 completedAt = field(4, "completed").takeIf { it.isNotEmpty() }?.let(OffsetDateTime::parse),
                 flagged = field(5, "flagged").toBooleanStrict(),
+                flags = if (legacy) emptySet() else field(6, "flags").let { value ->
+                    if (value.isEmpty()) emptySet() else value.split(',').map { key ->
+                        requireNotNull(TodoFlag.entries.find { it.key == key }) { "Unknown to-do flag: $key" }
+                    }.toSet()
+                },
             )
         }
         require(items.map { it.id }.distinct().size == items.size) { "Duplicate to-do IDs." }

@@ -22,7 +22,7 @@ class TodoFileParserTest {
         TodoFileParser.parse("Jnotes To-do: 1\n\nid: missing-fields\n")
     }
     @Test(expected = IllegalArgumentException::class) fun refusesUnknownFormat() {
-        TodoFileParser.parse("Jnotes To-do: 2\n")
+        TodoFileParser.parse("Jnotes To-do: 3\n")
     }
     @Test(expected = IllegalArgumentException::class) fun rejectsDuplicateIds() {
         val item = TodoItem(title = "Duplicate")
