@@ -1,9 +1,10 @@
-# JNotes 1.4.7
+# JNotes 1.4.8
 
-- The default Normal to-do view keeps open tasks visible and boxes completed tasks into collapsible date folders: Last week (today and the preceding six calendar days), This month, earlier months in the current year, and Previous years.
-- Recent tasks can appear in both Last week and their month/year folder. These are views of the same task: edits, flags, reopening, and deletion update every appearance.
-- All preserves the previous default's complete history, ordered by completion time followed by open tasks. Open, Completed, and Flagged views remain available.
-- Folder dates use the completion timestamp in the device's time zone. Counts and folder membership refresh as tasks change and as the date changes. Reopened tasks return to the open list.
-- Task tags, descriptions, colors, timestamps, file format, and the 1.4.6 startup/navigation optimizations are preserved. No task files are moved or duplicated.
+- Normal view now runs top to bottom: previous-year folders oldest first, current-year month folders oldest first through this month, completed tasks from the last seven days in ordinary list form, then active tasks in their existing order. The view starts at active tasks; scroll up to see history.
+- Folder titles include ✅ and each previous year gets its own folder. The current year has month folders only. There is no Completed section heading.
+- Opening a folder reveals tasks inside one continuous, slightly wider container. Inner task cards retain their existing width and formatting; long folders still render lazily.
+- Completed cards are subtly muted toward gray while retaining recognizable flag colors, emojis, checkboxes, descriptions, and timestamps.
+- Recent tasks can appear both inline and inside their month/year folder. Editing, flagging, reopening, and deletion update the same task everywhere. All, Open, Completed, and Flagged views remain available.
+- No task files are moved, copied, or reformatted. The 1.4.6 performance improvements remain intact.
 
-Install **jnotes-19.apk** over the existing app; no uninstall is needed.
+Install **jnotes-20.apk** over the existing app; no uninstall is needed.

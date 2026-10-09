@@ -1,6 +1,7 @@
 package com.plainnotes.android.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import com.plainnotes.android.data.TodoFlag
 import com.plainnotes.android.data.flagMask
 
@@ -25,3 +26,6 @@ fun todoFlagColors(flags: Set<TodoFlag>, dark: Boolean): TodoFlagColors? {
         completedContent = Color(if (dark) 0xFFD3D3D8 else 0xFF4B4B50),
     )
 }
+
+/** Keep the flag hue, but blend finished cards slightly toward the theme's neutral surface. */
+fun completedTodoContainer(container: Color, neutral: Color): Color = lerp(container, neutral, 0.25f)
