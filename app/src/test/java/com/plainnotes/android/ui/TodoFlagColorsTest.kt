@@ -33,9 +33,20 @@ class TodoFlagColorsTest {
             assertEquals(7, muted.distinct().size)
             palettes.zip(muted).forEach { (palette, container) ->
                 assertNotEquals(palette.container, container)
+                assertEquals(completedTodoText(dark), palette.completedContent)
                 assertTrue("Muted completed text must meet 4.5:1 contrast",
                     contrast(container, palette.completedContent) >= 4.5f)
             }
+        }
+    }
+
+    @Test fun folderSurfaceIsDarkerAndDistinctFromFinishedCards() {
+        for (scheme in listOf(lightColorScheme(), darkColorScheme())) {
+            val folder = completedFolderContainer(scheme.surfaceContainer)
+            val task = completedTodoContainer(scheme.surfaceContainerHighest, scheme.surfaceContainerHigh)
+            assertTrue(folder.luminance() < scheme.surfaceContainer.luminance())
+            assertNotEquals(task, folder)
+            assertTrue(contrast(folder, completedTodoText(scheme.background.luminance() < 0.5f)) >= 4.5f)
         }
     }
 

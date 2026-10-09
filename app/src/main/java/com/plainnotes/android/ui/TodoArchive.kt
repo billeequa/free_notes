@@ -15,7 +15,6 @@ fun todoArchive(
     today: LocalDate,
     zone: ZoneId,
 ): TodoArchive {
-    val weekStart = today.minusDays(6)
     val month = YearMonth.from(today)
     val completed = items.filter { it.completedAt != null }.sortedBy { it.completedAt!!.toInstant() }
     val dated = completed.map { it to it.completedAt!!.atZoneSameInstant(zone).toLocalDate() }
@@ -32,7 +31,7 @@ fun todoArchive(
         }
         TodoArchiveFolder(key, "✅ $title", grouped.getValue(key).map { it.first })
     }
-    val recent = dated.filter { (_, date) -> date in weekStart..today }.map { it.first }
+    val recent = completed.takeLast(10)
     return TodoArchive(folders, recent)
 }
 

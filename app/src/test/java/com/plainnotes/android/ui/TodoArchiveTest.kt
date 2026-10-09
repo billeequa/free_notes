@@ -37,12 +37,12 @@ class TodoArchiveTest {
         val original = listOf(old, current, older, recent) + open
         val serialized = TodoFileParser.serialize(original)
         val archive = todoArchive(original, today, zone)
-        assertEquals(listOf(recent, current), archive.recent)
+        assertEquals(listOf(old, older, recent, current), archive.recent)
         val rows = groupedTodoRows(open, archive, emptyList())
         assertTrue(rows.take(2).all { it is TodoListRow.Folder })
-        assertEquals(listOf(recent, current) + open, rows.filterIsInstance<TodoListRow.Task>().map { it.item })
-        assertEquals(5, todoOpenListIndex(rows))
-        assertSame(recent, archive.recent.first())
+        assertEquals(listOf(old, older, recent, current) + open, rows.filterIsInstance<TodoListRow.Task>().map { it.item })
+        assertEquals(7, todoOpenListIndex(rows))
+        assertSame(recent, archive.recent[2])
         assertSame(recent, archive.folders.last().items[1])
         assertEquals(serialized, TodoFileParser.serialize(original))
     }
@@ -66,7 +66,7 @@ class TodoArchiveTest {
         val future = done("2026-10-12T12:00:00-04:00")
         val archive = todoArchive(listOf(future), today, zone)
         assertEquals(listOf(future), archive.folders.single().items)
-        assertTrue(archive.recent.isEmpty())
+        assertEquals(listOf(future), archive.recent)
     }
 
     @Test fun completionDateUsesDeviceZoneRatherThanStoredOffsetOrCreationDate() {
@@ -75,13 +75,15 @@ class TodoArchiveTest {
         assertEquals("month:2026-10", todoArchive(listOf(item), today, ZoneId.of("UTC")).folders.single().id)
     }
 
-    @Test fun springDstWeekIsSevenLocalCalendarDaysAndRollsForward() {
-        val edge = done("2026-03-02T00:00:00-05:00")
-        val spring = done("2026-03-08T03:00:00-04:00")
-        assertEquals(listOf(edge, spring), todoArchive(listOf(edge, spring), LocalDate.of(2026, 3, 8), zone).recent)
-        val nextDay = todoArchive(listOf(edge, spring), LocalDate.of(2026, 3, 9), zone)
-        assertEquals(listOf(spring), nextDay.recent)
-        assertEquals(listOf(edge, spring), nextDay.folders.single().items)
+    @Test fun inlineHistoryIsTheLastTenCompletionsAcrossMonthsRegardlessOfInputOrder() {
+        val history = (1..15).map { day -> done("2026-09-${day.toString().padStart(2, '0')}T12:00:00-04:00") }
+        val archive = todoArchive(history.reversed(), today, zone)
+        assertEquals(history.takeLast(10), archive.recent)
+        assertEquals(history, archive.folders.single().items)
+        assertEquals(history.takeLast(10), todoArchive(history, today.plusMonths(1), zone).recent)
+        val reopened = history.last().copy(completedAt = null)
+        val afterReopening = todoArchive(history.dropLast(1) + reopened, today, zone)
+        assertEquals(history.dropLast(1).takeLast(10), afterReopening.recent)
     }
 
     @Test fun expandedContainersKeepDistinctKeysAndMarkOnlyTheirFinalChild() {
@@ -124,7 +126,7 @@ class TodoArchiveTest {
         val history = (1..1000).map { done("2025-01-01T12:00:00-05:00").copy(title = "Task $it") }
         val archive = todoArchive(history + open, today, zone)
         val rows = groupedTodoRows(listOf(open), archive, emptyList())
-        assertEquals(2, rows.size)
+        assertEquals(12, rows.size)
         assertEquals(TodoListRow.Task(open), rows.last())
         assertEquals(1000, archive.folders.single().items.size)
     }

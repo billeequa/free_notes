@@ -23,9 +23,15 @@ fun todoFlagColors(flags: Set<TodoFlag>, dark: Boolean): TodoFlagColors? {
     return TodoFlagColors(
         container = Color(container),
         content = Color(if (dark) 0xFFF4F4F5 else 0xFF202124),
-        completedContent = Color(if (dark) 0xFFD3D3D8 else 0xFF4B4B50),
+        completedContent = completedTodoText(dark),
     )
 }
 
 /** Keep the flag hue, but blend finished cards slightly toward the theme's neutral surface. */
 fun completedTodoContainer(container: Color, neutral: Color): Color = lerp(container, neutral, 0.25f)
+
+/** One readable text tone for every completed title, description, and timestamp. */
+fun completedTodoText(dark: Boolean): Color = Color(if (dark) 0xFFD3D3D8 else 0xFF4B4B50)
+
+/** A darker enclosing surface separates archive boxes from their finished cards. */
+fun completedFolderContainer(surface: Color): Color = lerp(surface, Color.Black, 0.14f)
