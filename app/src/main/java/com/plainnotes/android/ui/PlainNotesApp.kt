@@ -4,7 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -64,6 +64,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -151,12 +153,9 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     val notesPage = pages.indexOf(HomePage.NOTES)
     val journalPage = pages.indexOf(HomePage.JOURNAL)
     val todosPage = pages.indexOf(HomePage.TODOS)
-    val pagerState = rememberPagerState(initialPage = notesPage) { pages.size }
-    var pagerReady by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        pagerState.scrollToPage(notesPage)
-        pagerReady = true
-    }
+    val pageCount by rememberUpdatedState(pages.size)
+    // Deliberately start every new app composition on Notes; retain page state while navigating.
+    val pagerState = remember { PagerState(currentPage = notesPage) { pageCount } }
     val folderPicker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
         uri?.let {
             screenStateHolder.removeState(AppScreen.Notes.name)
@@ -236,9 +235,6 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
         screenStateHolder.SaveableStateProvider(currentScreenName) {
             when (currentScreen) {
                 AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
-                    if (!pagerReady) {
-                        CenterLoading(Modifier.fillMaxSize())
-                    } else {
                     HomeTabs(pagerState.currentPage, pages) { page ->
                         if (page == todosPage && pagerState.currentPage == todosPage) jumpToOpenRequest++
                         else scope.launch { pagerState.animateScrollToPage(page) }
@@ -296,7 +292,6 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     active = pagerState.currentPage == page)
                 }
     
-                }
                 }
                 AppScreen.Settings -> SettingsScreen(
                     selectedFolderName = uiState.selectedFolderName,
