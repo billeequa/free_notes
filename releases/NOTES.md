@@ -1,10 +1,9 @@
-# JNotes 1.4.9
+# JNotes 1.4.10
 
-- Normal To Do shows the last 10 completed tasks inline, oldest to newest, regardless of their completion month. All older tasks remain available in their year/month folders, with tags and edits shared everywhere.
-- Archive containers are slightly darker, and the gap before the first active task is twice the ordinary task spacing.
-- Tapping the already-selected To Do tab jumps to the first active task. Completed titles, descriptions, and timestamp labels use one consistent text color, including flagged tasks.
-- Added Medium− font size between Small+ and Medium.
-- Startup shows Notes after the tab configuration is ready, without briefly showing Ebooks. E Reader is enabled by default; an explicitly saved off setting is respected.
-- Settings uses a continuous page-colored header and scrollable top spacing so its text stays comfortably below the top bar.
+- Archive folders use a soft tint from the current theme accent instead of a dark overlay.
+- Completed titles, descriptions, and timestamps again use the theme's muted text color consistently across all flags and legacy markings.
+- To Do startup and jump-to-active positioning cancel the list's top inset, placing the viewport halfway through the gap above the first active task without showing the previous completed card.
+- Tapping Notes, Journal, or Ebooks scrolls that list to the top, including when selecting a different tab. Returning from an editor retains its prior list position.
+- The automatic-save explanation in Settings now follows the selected notes-folder location.
 
-Install **jnotes-21.apk** over the existing app; no uninstall is needed.
+Install **jnotes-22.apk** over the existing app; no uninstall is needed.

@@ -31,6 +31,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -134,6 +135,9 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
         return
     }
     var jumpToOpenRequest by remember { mutableIntStateOf(0) }
+    var notesTopRequest by rememberSaveable { mutableIntStateOf(0) }
+    var journalTopRequest by rememberSaveable { mutableIntStateOf(0) }
+    var booksTopRequest by rememberSaveable { mutableIntStateOf(0) }
     val pages = remember(uiState.showReader) { homePages(uiState.showReader) }
     val lifecycleOwner = LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, viewModel) {
@@ -237,8 +241,13 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
             when (currentScreen) {
                 AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
                     HomeTabs(pagerState.currentPage, pages) { page ->
-                        if (page == todosPage && pagerState.currentPage == todosPage) jumpToOpenRequest++
-                        else scope.launch { pagerState.animateScrollToPage(page) }
+                        when (pages[page]) {
+                            HomePage.NOTES -> notesTopRequest++
+                            HomePage.JOURNAL -> journalTopRequest++
+                            HomePage.EBOOKS -> booksTopRequest++
+                            HomePage.TODOS -> if (pagerState.currentPage == todosPage) jumpToOpenRequest++
+                        }
+                        if (page != pagerState.currentPage) scope.launch { pagerState.animateScrollToPage(page) }
                     }
                     HorizontalPager(
                     state = pagerState,
@@ -252,6 +261,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     if (page == notesPage || page == journalPage) NotesHomeScreen(
                     uiState = uiState,
                     isJournal = page == journalPage,
+                    scrollToTopRequest = if (page == journalPage) journalTopRequest else notesTopRequest,
                     onMoveCategory = viewModel::moveNoteCategory,
                     snackbarHostState = snackbarHostState,
                     onOpenSettings = { currentScreenName = AppScreen.Settings.name },
@@ -290,7 +300,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     onNotes = { scope.launch { pagerState.animateScrollToPage(notesPage) } },
                 )
                 else ReaderLibraryScreen(onSettings = { currentScreenName = AppScreen.Settings.name },
-                    active = pagerState.currentPage == page)
+                    active = pagerState.currentPage == page, scrollToTopRequest = booksTopRequest)
                 }
     
                 }
@@ -359,6 +369,7 @@ private fun SetupScreen(
 private fun NotesHomeScreen(
     uiState: PlainNotesUiState,
     isJournal: Boolean,
+    scrollToTopRequest: Int,
     onMoveCategory: (String, NoteCategory) -> Unit,
     snackbarHostState: SnackbarHostState,
     onOpenSettings: () -> Unit,
@@ -383,6 +394,7 @@ private fun NotesHomeScreen(
             NotesScreen(
             notes = if (isJournal) uiState.journals else uiState.notes,
             isJournal = isJournal,
+            scrollToTopRequest = scrollToTopRequest,
             onMoveCategory = onMoveCategory,
             isLoading = uiState.isLoading,
             onOpen = onOpenNote,
@@ -452,6 +464,7 @@ private fun NotesHomeScreen(
 private fun NotesScreen(
     notes: List<NoteDocument>,
     isJournal: Boolean,
+    scrollToTopRequest: Int,
     onMoveCategory: (String, NoteCategory) -> Unit,
     isLoading: Boolean,
     onOpen: (NoteDocument) -> Unit,
@@ -463,6 +476,14 @@ private fun NotesScreen(
 ) {
     var selectedMenuNoteId by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<NoteDocument?>(null) }
+    val listState = rememberLazyListState()
+    var consumedTopRequest by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(scrollToTopRequest, isLoading, notes.isNotEmpty()) {
+        if (scrollToTopRequest != consumedTopRequest && !isLoading && notes.isNotEmpty()) {
+            listState.scrollToItem(0)
+            consumedTopRequest = scrollToTopRequest
+        }
+    }
 
     if (isLoading) {
         CenterLoading(modifier)
@@ -479,6 +500,7 @@ private fun NotesScreen(
     }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp,
             bottom = 96.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
@@ -718,6 +740,7 @@ private fun SettingsScreen(
                         Text("Change")
                     }
                 }
+                Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodyMedium)
                 HorizontalDivider()
                 Text(
                     text = "Themes",
@@ -769,7 +792,6 @@ private fun SettingsScreen(
                 }
                 BooksFoldersSettings()
                 HorizontalDivider()
-                Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodyMedium)
                 UpdateSettings()
                 Button(onClick = onOpenTrash, modifier = Modifier.fillMaxWidth()) {
                     Text("Open trash")

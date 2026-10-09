@@ -111,6 +111,9 @@ fun TodoScreen(
         else items.map { TodoListRow.Task(it) }
     }
     val listState = rememberLazyListState()
+    // LazyColumn's 16-dp top padding otherwise exposes the previous card above the target.
+    // Cancel that inset: the first active row's 8-dp top gap is half the 16-dp history gap.
+    val activeScrollOffset = with(LocalDensity.current) { 16.dp.roundToPx() }
     val openHeights = remember { mutableStateMapOf<String, Int>() }
     val openHeightPx by remember(open) {
         derivedStateOf { open.sumOf { openHeights[it.id] ?: 0 } }
@@ -137,7 +140,7 @@ fun TodoScreen(
             }
         } else if (state.todosLoaded && !positioned) {
             val index = if (filter == "All" || filter == "Normal") todoOpenListIndex(rows) else 0
-            listState.scrollToItem(index)
+            listState.scrollToItem(index, scrollOffset = if (index > 0 && open.isNotEmpty()) activeScrollOffset else 0)
             positioned = true
         }
     }
@@ -153,7 +156,7 @@ fun TodoScreen(
             filter = "Normal"
         } else {
             val index = todoOpenListIndex(rows)
-            scope.launch { listState.animateScrollToItem(index) }
+            scope.launch { listState.animateScrollToItem(index, scrollOffset = activeScrollOffset) }
         }
     }
     LaunchedEffect(jumpToOpenRequest, state.todosLoaded) {
@@ -184,9 +187,8 @@ fun TodoScreen(
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
             val knownOpenHeight = with(LocalDensity.current) { openHeightPx.toDp() }
-            val folderContainer = completedFolderContainer(MaterialTheme.colorScheme.surfaceContainer)
-            val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-            val completedText = completedTodoText(dark)
+            val folderContainer = completedFolderContainer(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primary)
+            val completedText = MaterialTheme.colorScheme.onSurfaceVariant
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
