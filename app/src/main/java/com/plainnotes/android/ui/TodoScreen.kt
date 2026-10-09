@@ -23,7 +23,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.VerticalAlignBottom
-import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.foundation.combinedClickable
@@ -102,12 +101,12 @@ fun TodoScreen(
             }
         }
     }
-    val folders = remember(completed, archiveDate) {
-        todoArchiveFolders(completed, archiveDate.first, archiveDate.second)
+    val archive = remember(completed, archiveDate) {
+        todoArchive(completed, archiveDate.first, archiveDate.second)
     }
     var expandedFolders by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    val rows = remember(items, folders, expandedFolders, filter) {
-        if (filter == "Normal") groupedTodoRows(open, folders, expandedFolders)
+    val rows = remember(items, archive, expandedFolders, filter) {
+        if (filter == "Normal") groupedTodoRows(open, archive, expandedFolders)
         else items.map { TodoListRow.Task(it) }
     }
     val listState = rememberLazyListState()
@@ -136,9 +135,7 @@ fun TodoScreen(
                 positioned = true
             }
         } else if (state.todosLoaded && !positioned) {
-            val index = if (filter == "All") {
-                if (open.isNotEmpty()) completed.size + 1 else completed.size
-            } else 0
+            val index = if (filter == "All" || filter == "Normal") todoOpenListIndex(rows) else 0
             listState.scrollToItem(index)
             positioned = true
         }
@@ -154,9 +151,7 @@ fun TodoScreen(
             positioned = false
             filter = "Normal"
         } else {
-            val index = if (filter == "All") {
-                if (open.isNotEmpty()) completed.size + 1 else completed.size
-            } else 0
+            val index = todoOpenListIndex(rows)
             scope.launch { listState.animateScrollToItem(index) }
         }
     }
@@ -185,6 +180,7 @@ fun TodoScreen(
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
             val knownOpenHeight = with(LocalDensity.current) { openHeightPx.toDp() }
+            val folderContainer = MaterialTheme.colorScheme.surfaceContainer
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
@@ -202,12 +198,13 @@ fun TodoScreen(
                         onHorizontalDrag = { change, amount -> change.consume(); distance += amount },
                     )
                 },
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp,
+                // Folders extend 8 dp beyond task cards; inner and ordinary cards keep their 16-dp inset.
+                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp,
                     bottom = 88.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.Top,
             ) {
                 item(key = "filter-header") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("View", style = MaterialTheme.typography.labelLarge)
                 Box {
                     Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.clickable { filterMenu = true }) {
@@ -236,17 +233,17 @@ fun TodoScreen(
                 if (rows.isEmpty()) item(key = "empty") {
                     Text(if (allItems.isEmpty()) "Tap + to add your first to-do." else "No ${filter.lowercase()} tasks.", Modifier.padding(24.dp))
                 }
-                if (filter == "Normal" && open.isEmpty() && folders.isNotEmpty()) item(key = "open-empty") {
-                    Text("No open tasks.", Modifier.padding(16.dp))
-                }
                 items(rows, key = { it.key }, contentType = { it::class }) { row ->
                     when (row) {
-                        TodoListRow.CompletedHeader -> Text("Completed", style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
                         is TodoListRow.Folder -> {
                             val folder = row.folder
                             val expanded = folder.id in expandedFolders
-                            Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+                            // No gap between an expanded header and its lazy child rows: one continuous container.
+                            val shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp,
+                                bottomStart = if (expanded) 0.dp else 16.dp,
+                                bottomEnd = if (expanded) 0.dp else 16.dp)
+                            Box(modifier = Modifier.fillMaxWidth().padding(bottom = if (expanded) 0.dp else 8.dp)
+                                .clip(shape).background(folderContainer)
                                 .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
                                 .clickable(role = Role.Button) {
                                     expandedFolders = if (expanded) expandedFolders - folder.id else expandedFolders + folder.id
@@ -254,9 +251,10 @@ fun TodoScreen(
                                 }) {
                                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Icon(Icons.Rounded.Folder, null)
-                                    Text(folder.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                                    Text(folder.items.size.toString(), style = MaterialTheme.typography.labelLarge)
+                                    Text(folder.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(folder.items.size.toString(), style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight, null)
                                 }
                             }
@@ -280,116 +278,128 @@ fun TodoScreen(
                                 animationSpec = tween(if (dragOffset != null) 0 else 160), label = "completion reveal",
                             )
                             val offset = dragOffset ?: settledOffset
-                            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                .onSizeChanged { if (!done) openHeights[item.id] = it.height }) {
-                                if (!done && offset < -1f) IconButton(
-                                    onClick = { revealedId = null; complete(item.id) },
-                                    enabled = revealed,
-                                    modifier = Modifier.align(Alignment.CenterEnd).size(56.dp)
-                                        .graphicsLayer { alpha = (-offset / revealWidth).coerceIn(0f, 1f) }
-                                        .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
-                                ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
-                                if (!done && offset > 1f) IconButton(
-                                    onClick = { checkboxConfirmId = null; complete(item.id) },
-                                    enabled = checkboxPending,
-                                    modifier = Modifier.align(Alignment.CenterStart).size(56.dp)
-                                        .graphicsLayer { alpha = (offset / revealWidth).coerceIn(0f, 1f) }
-                                        .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
-                                ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
-                                Card(Modifier.fillMaxWidth().graphicsLayer { translationX = offset }.todoGestures(
-                                    onTap = {
-                                        if (revealed) revealedId = null
-                                        else if (checkboxPending) checkboxConfirmId = null
-                                        else editingId = item.id
-                                    },
-                                    onMenu = { revealedId = null; checkboxConfirmId = null; menuId = row.key },
-                                    onDragStart = {
-                                        gestureStartedWithReveal = revealed || checkboxPending
-                                        dragOffset = settledOffset
-                                    },
-                                    onDrag = { amount -> if (!done) {
-                                        val min = if (gestureStartedWithReveal && checkboxPending) 0f else -revealWidth
-                                        val max = if (gestureStartedWithReveal && checkboxPending) revealWidth else 0f
-                                        dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(min, max)
-                                    } },
-                                    onDragEnd = { distance ->
-                                        if (gestureStartedWithReveal) {
-                                            revealedId = null
-                                            checkboxConfirmId = null
-                                        } else if (distance >= revealWidth) { revealedId = null; onNotes() }
-                                        else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
-                                        else revealedId = null
-                                        dragOffset = null
-                                        gestureStartedWithReveal = false
-                                    },
-                                    onDragCancel = { dragOffset = null; gestureStartedWithReveal = false },
-                                ), colors = CardDefaults.cardColors(
-                                    containerColor = flagColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    contentColor = flagColors?.content ?: MaterialTheme.colorScheme.onSurface,
-                                )) {
-                                    Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                                        val color = if (done) flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant
-                                            else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Checkbox(
-                                                checked = done || completionPending,
-                                                onCheckedChange = {
-                                                    if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
-                                                    else if (completionPending) { revealedId = null; checkboxConfirmId = null }
-                                                    else { revealedId = null; checkboxConfirmId = item.id }
-                                                },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = if (completionPending)
-                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
-                                                    else MaterialTheme.colorScheme.primary,
-                                                ),
-                                                modifier = Modifier.semantics {
-                                                    contentDescription = when {
-                                                        done -> "Reopen: ${item.title}"
-                                                        completionPending -> "Cancel completion: ${item.title}"
-                                                        else -> "Show completion confirmation: ${item.title}"
-                                                    }
-                                                    stateDescription = when {
-                                                        done -> "Completed"
-                                                        completionPending -> "Awaiting confirmation"
-                                                        else -> "Incomplete"
-                                                    }
-                                                },
-                                            )
-                                        Text(
-                                            modifier = Modifier.weight(1f),
-                                            text = listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = color,
-                                        )
-
-                                            IconButton(onClick = { menuId = row.key }) { Icon(Icons.Rounded.MoreVert, "Task actions") }
-                                        }
-                                        if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant)
-                                        DropdownMenu(expanded = menuId == row.key, onDismissRequest = { menuId = null }) {
-                                            DropdownMenuItem(text = { Text("Edit") }, onClick = { menuId = null; editingId = item.id })
-                                            TodoFlag.entries.forEach { flag ->
-                                                DropdownMenuItem(
-                                                    text = { Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}") },
-                                                    trailingIcon = { if (flag in item.flags) Icon(Icons.Rounded.Check, "Selected") },
-                                                    onClick = {
-                                                        menuId = null
-                                                        change { todos -> todos.map { if (it.id == item.id) it.withFlag(flag) else it } }
+                            val rowModifier = if (row.folderId != null) Modifier.fillMaxWidth()
+                                .padding(bottom = if (row.lastInFolder) 8.dp else 0.dp)
+                                .clip(RoundedCornerShape(bottomStart = if (row.lastInFolder) 16.dp else 0.dp,
+                                    bottomEnd = if (row.lastInFolder) 16.dp else 0.dp))
+                                .background(folderContainer)
+                                .padding(start = 8.dp, end = 8.dp, top = 4.dp,
+                                    bottom = if (row.lastInFolder) 12.dp else 4.dp)
+                            else Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                            val cardContainer = flagColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHighest
+                            Box(rowModifier) {
+                                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                    .onSizeChanged { if (!done) openHeights[item.id] = it.height }) {
+                                    if (!done && offset < -1f) IconButton(
+                                        onClick = { revealedId = null; complete(item.id) },
+                                        enabled = revealed,
+                                        modifier = Modifier.align(Alignment.CenterEnd).size(56.dp)
+                                            .graphicsLayer { alpha = (-offset / revealWidth).coerceIn(0f, 1f) }
+                                            .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                                    ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
+                                    if (!done && offset > 1f) IconButton(
+                                        onClick = { checkboxConfirmId = null; complete(item.id) },
+                                        enabled = checkboxPending,
+                                        modifier = Modifier.align(Alignment.CenterStart).size(56.dp)
+                                            .graphicsLayer { alpha = (offset / revealWidth).coerceIn(0f, 1f) }
+                                            .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                                    ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
+                                    Card(Modifier.fillMaxWidth().graphicsLayer { translationX = offset }.todoGestures(
+                                        onTap = {
+                                            if (revealed) revealedId = null
+                                            else if (checkboxPending) checkboxConfirmId = null
+                                            else editingId = item.id
+                                        },
+                                        onMenu = { revealedId = null; checkboxConfirmId = null; menuId = row.key },
+                                        onDragStart = {
+                                            gestureStartedWithReveal = revealed || checkboxPending
+                                            dragOffset = settledOffset
+                                        },
+                                        onDrag = { amount -> if (!done) {
+                                            val min = if (gestureStartedWithReveal && checkboxPending) 0f else -revealWidth
+                                            val max = if (gestureStartedWithReveal && checkboxPending) revealWidth else 0f
+                                            dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(min, max)
+                                        } },
+                                        onDragEnd = { distance ->
+                                            if (gestureStartedWithReveal) {
+                                                revealedId = null
+                                                checkboxConfirmId = null
+                                            } else if (distance >= revealWidth) { revealedId = null; onNotes() }
+                                            else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
+                                            else revealedId = null
+                                            dragOffset = null
+                                            gestureStartedWithReveal = false
+                                        },
+                                        onDragCancel = { dragOffset = null; gestureStartedWithReveal = false },
+                                    ), colors = CardDefaults.cardColors(
+                                        containerColor = if (done) completedTodoContainer(cardContainer,
+                                            MaterialTheme.colorScheme.surfaceContainerHigh) else cardContainer,
+                                        contentColor = flagColors?.content ?: MaterialTheme.colorScheme.onSurface,
+                                    )) {
+                                        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                            val color = if (done) flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant
+                                                else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Checkbox(
+                                                    checked = done || completionPending,
+                                                    onCheckedChange = {
+                                                        if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
+                                                        else if (completionPending) { revealedId = null; checkboxConfirmId = null }
+                                                        else { revealedId = null; checkboxConfirmId = item.id }
+                                                    },
+                                                    colors = CheckboxDefaults.colors(
+                                                        checkedColor = if (completionPending || done)
+                                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                                                        else MaterialTheme.colorScheme.primary,
+                                                    ),
+                                                    modifier = Modifier.semantics {
+                                                        contentDescription = when {
+                                                            done -> "Reopen: ${item.title}"
+                                                            completionPending -> "Cancel completion: ${item.title}"
+                                                            else -> "Show completion confirmation: ${item.title}"
+                                                        }
+                                                        stateDescription = when {
+                                                            done -> "Completed"
+                                                            completionPending -> "Awaiting confirmation"
+                                                            else -> "Incomplete"
+                                                        }
                                                     },
                                                 )
+                                            Text(
+                                                modifier = Modifier.weight(1f),
+                                                text = listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = color,
+                                            )
+
+                                                IconButton(onClick = { menuId = row.key }) { Icon(Icons.Rounded.MoreVert, "Task actions") }
                                             }
-                                            if (item.flagged) DropdownMenuItem(text = { Text("Remove legacy flag") }, onClick = {
-                                                menuId = null
-                                                change { todos -> todos.map { if (it.id == item.id) it.copy(flagged = false) else it } }
-                                            })
-                                            DropdownMenuItem(text = { Text(if (done) "Mark incomplete" else "Show completion check") }, onClick = {
-                                                menuId = null
-                                                if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
-                                                else revealedId = item.id
-                                            })
-                                            DropdownMenuItem(text = { Text("Delete") }, onClick = { menuId = null; deleteId = item.id })
+                                            if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                                            DropdownMenu(expanded = menuId == row.key, onDismissRequest = { menuId = null }) {
+                                                DropdownMenuItem(text = { Text("Edit") }, onClick = { menuId = null; editingId = item.id })
+                                                TodoFlag.entries.forEach { flag ->
+                                                    DropdownMenuItem(
+                                                        text = { Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}") },
+                                                        trailingIcon = { if (flag in item.flags) Icon(Icons.Rounded.Check, "Selected") },
+                                                        onClick = {
+                                                            menuId = null
+                                                            change { todos -> todos.map { if (it.id == item.id) it.withFlag(flag) else it } }
+                                                        },
+                                                    )
+                                                }
+                                                if (item.flagged) DropdownMenuItem(text = { Text("Remove legacy flag") }, onClick = {
+                                                    menuId = null
+                                                    change { todos -> todos.map { if (it.id == item.id) it.copy(flagged = false) else it } }
+                                                })
+                                                DropdownMenuItem(text = { Text(if (done) "Mark incomplete" else "Show completion check") }, onClick = {
+                                                    menuId = null
+                                                    if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
+                                                    else revealedId = item.id
+                                                })
+                                                DropdownMenuItem(text = { Text("Delete") }, onClick = { menuId = null; deleteId = item.id })
+                                            }
                                         }
                                     }
                                 }
@@ -397,8 +407,8 @@ fun TodoScreen(
                         }
                     }
                 }
-                if (filter == "All") {
-                    if (open.isEmpty()) item(key = "open-empty") {
+                if (filter == "All" || filter == "Normal") {
+                    if (open.isEmpty() && rows.isNotEmpty()) item(key = "open-empty") {
                         Text("No open tasks. Scroll up for completed tasks.", Modifier.padding(16.dp))
                     }
                     if (open.isNotEmpty()) item(key = "normal-space") {
