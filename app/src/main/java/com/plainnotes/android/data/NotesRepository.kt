@@ -25,6 +25,8 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,6 +34,12 @@ import kotlinx.coroutines.withContext
 
 class NotesRepository(private val context: Context) {
     private val storageMutex = Mutex()
+    private val todoStorageMutex = Mutex()
+    private val documents = DocumentDirectory(context.contentResolver)
+    private var index: NoteIndex? = null
+    private var indexReady = false
+    private val _noteIndex = MutableStateFlow<NoteIndexSnapshot?>(null)
+    internal val noteIndex = _noteIndex.asStateFlow()
     private val settingsRepository = AppSettingsRepository(context)
     private val contentResolver: ContentResolver = context.contentResolver
     private val fileStampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.US)
@@ -84,34 +92,82 @@ class NotesRepository(private val context: Context) {
         rootDirectoryOrNull()?.let { FolderInfo(displayName = it.name ?: "PlainNotes") }
     }
 
+    /** This path reads only the private index; it never contacts the document provider. */
+    internal suspend fun loadCachedNotes(folderUri: Uri): NoteIndexSnapshot? = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val cached = indexFor(folderUri)
+            if (indexReady) cached.snapshot().also { _noteIndex.value = it } else null
+        }
+    }
+
     suspend fun listActiveNotes(): List<NoteDocument> = withContext(Dispatchers.IO) {
         storageMutex.withLock {
             val root = rootDirectoryOrNull() ?: return@withContext emptyList()
-            root.listFiles()
-                .asSequence()
-                .filter { it.isFile && isNoteFile(it) }
-                .mapNotNull { readNoteDocument(it, isTrashed = false) }
-                .sortedByDescending { it.modifiedAt }
-                .toList()
+            reconcileIndex(root)
+            index!!.snapshot().notes
         }
     }
 
     suspend fun listTrashedNotes(): List<NoteDocument> = withContext(Dispatchers.IO) {
         storageMutex.withLock {
-            val trashDirectory = trashDirectoryOrNull() ?: return@withContext emptyList()
-            trashDirectory.listFiles()
-                .asSequence()
-                .filter { it.isFile && isNoteFile(it) }
-                .mapNotNull { readNoteDocument(it, isTrashed = true) }
-                .sortedByDescending { it.modifiedAt }
-                .toList()
+            val trash = trashDirectoryOrNull() ?: return@withContext emptyList()
+            documents.children(trash).filter { it.isNote }.mapNotNull { entry ->
+                readSummary(entry, true)
+            }.sortedByDescending { it.modifiedAt }
         }
+    }
+
+    private fun indexFor(folderUri: Uri): NoteIndex {
+        val key = if (android.provider.DocumentsContract.isTreeUri(folderUri))
+            android.provider.DocumentsContract.buildTreeDocumentUri(folderUri.authority,
+                android.provider.DocumentsContract.getTreeDocumentId(folderUri)).toString()
+            else folderUri.toString()
+        if (index?.folderUri != key) {
+            index = NoteIndex(java.io.File(context.filesDir, "note-index"), key, "PlainNotes")
+            indexReady = index!!.load()
+        }
+        return index!!
+    }
+
+    private fun publishIndex() {
+        if (indexReady) {
+            index!!.persist()
+            _noteIndex.value = index!!.snapshot()
+        }
+    }
+
+    private fun reconcileIndex(root: DocumentFile) {
+        val cached = indexFor(root.uri)
+        val children = documents.children(root).filter { it.isNote }
+        val time = System.currentTimeMillis()
+        val present = children.mapTo(hashSetOf()) { it.uri.toString() }
+        children.forEach { entry ->
+            val previous = cached.entries[entry.uri.toString()]
+            if (previous == null || !previous.matches(entry, time) || hasRecovery(entry.uri)) {
+                readSummary(entry, false)?.let {
+                    cached.put(IndexedNote(it, entry.modifiedMillis, entry.size, time))
+                }
+            }
+        }
+        cached.entries.keys.filter { it !in present }.forEach(cached::remove)
+        cached.folderName = root.name ?: cached.folderName
+        indexReady = true
+        publishIndex()
+    }
+
+    private fun recordNote(note: EditableNote, previousUri: Uri? = null) {
+        val cached = index ?: return
+        if (previousUri != null && previousUri != note.documentUri) cached.remove(previousUri.toString())
+        val stamp = runCatching { documents.stat(note.documentUri) }.getOrNull()
+        cached.put(IndexedNote(note.toDocument(), stamp?.modifiedMillis, stamp?.size, System.currentTimeMillis()))
+        publishIndex()
     }
 
     suspend fun createBlankNote(): EditableNote = withContext(Dispatchers.IO) {
         storageMutex.withLock {
             val root = requireRootDirectory()
-            val now = now()
+            indexFor(root.uri)
+            val now = now().withNano(0)
             val fileName = uniqueFileName(
                 directory = root,
                 preferredName = "${fileStampFormatter.format(now)}-${slugify("")}.txt",
@@ -125,43 +181,47 @@ class NotesRepository(private val context: Context) {
                 body = "",
             )
             writeText(file.uri, NoteFileParser.serialize(content))
-            readEditableNote(file, isTrashed = false)
-                ?: throw IOException("Unable to read the note after creating it.")
+            editableFromContent(file.uri, file.name ?: fileName, content, false).also { recordNote(it) }
         }
     }
 
     suspend fun createJournalNote(): EditableNote = withContext(Dispatchers.IO) {
         storageMutex.withLock {
             val root = requireRootDirectory()
-            createJournalFile(root, LocalDate.now(), activeEditableNotes(root))
+            ensureIndex(root)
+            createJournalFile(root, LocalDate.now(), index!!.snapshot().notes)
         }
     }
 
-    private fun activeEditableNotes(root: DocumentFile): List<EditableNote> =
-        root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
-            .mapNotNull { readEditableNote(it, false) }.toList()
+    private fun ensureIndex(root: DocumentFile) {
+        indexFor(root.uri)
+        if (!indexReady) reconcileIndex(root)
+    }
 
-    private fun createJournalFile(root: DocumentFile, date: LocalDate, notes: List<EditableNote>): EditableNote {
-        val now = now()
+    private fun createJournalFile(root: DocumentFile, date: LocalDate, notes: List<NoteDocument>): EditableNote {
+        val now = now().withNano(0)
         val title = JournalEntries.nextTitle(date, notes.map { it.title })
         val filename = uniqueFileName(root, "${fileStampFormatter.format(now)}-${slugify(title)}.txt")
         val file = root.createFile(TEXT_MIME_TYPE, filename) ?: throw IOException("Unable to create journal entry.")
-        writeText(file.uri, NoteFileParser.serialize(NoteTextContent(
-            title, now, now, "", category = NoteCategory.JOURNAL, journalDate = date,
-        )))
-        return readEditableNote(file, false) ?: throw IOException("Unable to open journal entry.")
+        val content = NoteTextContent(title, now, now, "", category = NoteCategory.JOURNAL, journalDate = date)
+        writeText(file.uri, NoteFileParser.serialize(content))
+        return editableFromContent(file.uri, file.name ?: filename, content, false).also { recordNote(it) }
     }
 
     /** Serialized with other note writes; repeated opens reuse the same daily journal. */
     suspend fun findOrCreateDoubleXNote(date: LocalDate): EditableNote = withContext(Dispatchers.IO) {
         storageMutex.withLock {
             val root = requireRootDirectory()
-            val notes = activeEditableNotes(root)
-            val existing = notes.firstOrNull { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }
-            val daily = existing ?: notes.filter { it.category == NoteCategory.JOURNAL && it.journalDate == date }
-                .minWithOrNull(compareBy<EditableNote> { it.createdAt.toInstant() }
+            ensureIndex(root)
+            val notes = index!!.snapshot().notes
+            val existing = index!!.doubleXDates[date]?.let { index!!.entries[it]?.note }
+            val dailySummary = existing ?: notes.filter { it.category == NoteCategory.JOURNAL && it.journalDate == date }
+                .minWithOrNull(compareBy<NoteDocument> { it.createdAt.toInstant() }
                     .thenBy { JournalEntries.sequenceNumber(it.title) })
-                ?: createJournalFile(root, date, notes)
+            val daily = if (dailySummary == null) createJournalFile(root, date, notes) else
+                readEditableNote(DocumentFile.fromSingleUri(context, dailySummary.documentUri)
+                    ?: throw IOException("Unable to open journal entry."), false)
+                    ?: throw IOException("Unable to open journal entry.")
             val updated = withDoubleXTemplate(daily.copy(
                 title = if (existing != null) daily.title else JournalEntries.doubleXTitle(date, daily.title),
                 modifiedAt = if (daily.noteType == NoteType.DOUBLE_X_DAY) daily.modifiedAt else now(),
@@ -169,13 +229,13 @@ class NotesRepository(private val context: Context) {
                 category = NoteCategory.JOURNAL, journalDate = date,
             ), root)
             writeText(updated.documentUri, NoteFileParser.serialize(updated.textContent()))
-            updated
+            updated.also { recordNote(it) }
         }
     }
 
-    suspend fun setNoteCategory(uriString: String, category: NoteCategory) {
+    suspend fun setNoteCategory(uriString: String, category: NoteCategory): EditableNote {
         val note = loadEditableNote(uriString) ?: throw IOException("The note could not be found.")
-        saveNote(note.copy(
+        return saveNote(note.copy(
             category = category,
             journalDate = note.journalDate ?: if (category == NoteCategory.JOURNAL)
                 JournalEntries.dateFromTitle(note.title) ?: note.createdAt.toLocalDate() else null,
@@ -184,10 +244,8 @@ class NotesRepository(private val context: Context) {
 
     suspend fun hasDoubleXNote(date: LocalDate): Boolean = withContext(Dispatchers.IO) {
         storageMutex.withLock {
-            val root = requireRootDirectory()
-            root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
-                .mapNotNull { readNoteDocument(it, false) }
-                .any { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }
+            ensureIndex(requireRootDirectory())
+            index!!.doubleXDates.containsKey(date)
         }
     }
 
@@ -201,7 +259,8 @@ class NotesRepository(private val context: Context) {
             val updated = if (original.noteType == NoteType.DOUBLE_X_DAY && original.doubleXTemplateVersion < 1)
                 withDoubleXTemplate(original, requireRootDirectory()) else original
             if (updated != original) writeText(file.uri, NoteFileParser.serialize(updated.textContent()))
-            updated
+            indexFor(requireRootDirectory().uri)
+            updated.also { recordNote(it) }
         }
     }
 
@@ -209,6 +268,7 @@ class NotesRepository(private val context: Context) {
         storageMutex.withLock {
             val updated = note.copy(modifiedAt = now())
             val directory = if (updated.isTrashed) requireTrashDirectory() else requireRootDirectory()
+            if (!updated.isTrashed) indexFor(directory.uri)
             val file = resolveCurrentFile(updated, directory)
                 ?: throw IOException("Note file is no longer available.")
             val target = prepareSaveTarget(
@@ -233,24 +293,25 @@ class NotesRepository(private val context: Context) {
                 target.file.uri,
                 serialized,
             )
-            check(readText(target.file.uri) == serialized) { "Saved note could not be verified." }
             target.previousFileToDelete?.let { previous ->
                 if (previous.exists()) {
                     previous.delete()
                 }
             }
-            readEditableNote(target.file, isTrashed = updated.isTrashed)
-                ?: throw IOException("Unable to reload the note after saving it.")
+            // writeText already verified the complete bytes. Do not reread them twice more.
+            val saved = updated.copy(documentUri = target.file.uri, filename = target.file.name ?: updated.filename,
+                createdAt = updated.createdAt.withNano(0), modifiedAt = updated.modifiedAt.withNano(0))
+            if (!saved.isTrashed) recordNote(saved, note.documentUri)
+            saved
         }
     }
 
-    suspend fun renameNote(uriString: String, newTitle: String) {
+    suspend fun renameNote(uriString: String, newTitle: String): EditableNote =
         withContext(Dispatchers.IO) {
             val note = loadEditableNote(uriString)
                 ?: throw IOException("The note could not be found.")
             saveNote(note.copy(title = newTitle))
         }
-    }
 
     suspend fun moveToTrash(uriString: String) {
         withContext(Dispatchers.IO) {
@@ -258,10 +319,13 @@ class NotesRepository(private val context: Context) {
             val source = DocumentFile.fromSingleUri(context, Uri.parse(uriString))
                 ?: throw IOException("The note could not be found.")
             val trash = requireTrashDirectory()
+            indexFor(requireRootDirectory().uri)
             copyDocumentToDirectory(source, trash)
             if (!source.delete()) {
                 throw IOException("The note could not be deleted after copying to trash.")
             }
+            index!!.remove(uriString)
+            publishIndex()
             }
         }
     }
@@ -271,17 +335,18 @@ class NotesRepository(private val context: Context) {
             storageMutex.withLock {
             val source = DocumentFile.fromSingleUri(context, Uri.parse(uriString))
                 ?: throw IOException("The trashed note could not be found.")
-            val date = readNoteDocument(source, true)?.doubleXDate
+            val original = readEditableNote(source, true) ?: throw IOException("Unable to read the trashed note.")
+            val date = original.doubleXDate
             val root = requireRootDirectory()
-            if (date != null && root.listFiles().asSequence().filter { it.isFile && isNoteFile(it) }
-                    .mapNotNull { readNoteDocument(it, false) }
-                    .any { it.noteType == NoteType.DOUBLE_X_DAY && it.doubleXDate == date }) {
+            ensureIndex(root)
+            if (date != null && index!!.doubleXDates.containsKey(date)) {
                 throw IOException("A Double X Day note already exists for $date.")
             }
-            copyDocumentToDirectory(source, root)
+            val restored = copyDocumentToDirectory(source, root)
             if (!source.delete()) {
                 throw IOException("The trashed note could not be removed after restoring it.")
             }
+            recordNote(original.copy(documentUri = restored.uri, filename = restored.name ?: original.filename, isTrashed = false))
             }
         }
     }
@@ -335,7 +400,7 @@ class NotesRepository(private val context: Context) {
     }
 
     suspend fun loadTodos(): List<TodoItem> = withContext(Dispatchers.IO) {
-        storageMutex.withLock {
+        todoStorageMutex.withLock {
             readTodos(requireRootDirectory())
         }
     }
@@ -345,9 +410,9 @@ class NotesRepository(private val context: Context) {
         return TodoFileParser.parse(readRecoverableText(file.uri) ?: throw IOException("Unable to read the to-do list."))
     }
 
-    private fun withDoubleXTemplate(note: EditableNote, root: DocumentFile): EditableNote {
+    private suspend fun withDoubleXTemplate(note: EditableNote, root: DocumentFile): EditableNote {
         if (note.doubleXTemplateVersion >= 1 || note.noteType != NoteType.DOUBLE_X_DAY || note.doubleXDate == null) return note
-        val content = DoubleXDay.withTemplate(note.textContent(), readTodos(root))
+        val content = DoubleXDay.withTemplate(note.textContent(), todoStorageMutex.withLock { readTodos(root) })
         return note.copy(body = content.body, doubleXTemplateVersion = content.doubleXTemplateVersion)
     }
 
@@ -356,7 +421,7 @@ class NotesRepository(private val context: Context) {
     )
 
     suspend fun saveTodos(items: List<TodoItem>) = withContext(Dispatchers.IO) {
-        storageMutex.withLock {
+        todoStorageMutex.withLock {
             val root = requireRootDirectory()
             val file = safeFindFile(root, TodoFileParser.FILE_NAME)
                 ?: root.createFile(TEXT_MIME_TYPE, TodoFileParser.FILE_NAME)
@@ -400,51 +465,46 @@ class NotesRepository(private val context: Context) {
         return lowerName.endsWith(".txt") || file.type == TEXT_MIME_TYPE
     }
 
-    private fun readEditableNote(file: DocumentFile, isTrashed: Boolean): EditableNote? {
-        val document = readNoteDocument(file, isTrashed) ?: return null
-        return EditableNote(
-            documentUri = document.documentUri,
-            filename = document.filename,
-            title = document.title,
-            body = document.body,
-            createdAt = document.createdAt,
-            modifiedAt = document.modifiedAt,
-            isTrashed = document.isTrashed,
-            noteType = document.noteType,
-            doubleXDate = document.doubleXDate,
-            category = document.category,
-            journalDate = document.journalDate,
-            doubleXTemplateVersion = document.doubleXTemplateVersion,
-        )
+    /** Headers plus the first meaningful body line suffice for the legacy title fallback. */
+    private fun readSummary(entry: DocumentEntry, trashed: Boolean): NoteDocument? {
+        if (hasRecovery(entry.uri)) return readEditableNote(entry, trashed)?.toDocument()
+        val prefix = contentResolver.openInputStream(entry.uri)?.bufferedReader(StandardCharsets.UTF_8)?.use { reader ->
+            buildString {
+                var separatorSeen = false
+                var titleSeen = false
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    append(line); append('\n')
+                    if (line.startsWith("Title:", ignoreCase = true)) titleSeen = true
+                    if (line.isBlank() && titleSeen) break
+                    if (separatorSeen && line.isNotBlank()) break
+                    if (line.isBlank()) separatorSeen = true
+                    // A headerless note's first line is already its inferred title.
+                    if (!separatorSeen && !NoteFileParser.isMetadataLine(line)) break
+                }
+            }
+        } ?: return null
+        val parsed = NoteFileParser.parse(prefix, entry.name, entry.modifiedMillis ?: 0L, now())
+        return editableFromContent(entry.uri, entry.name, parsed, trashed).toDocument()
     }
 
-    private fun readNoteDocument(file: DocumentFile, isTrashed: Boolean): NoteDocument? {
-        val text = readRecoverableText(file.uri) ?: return null
-        val parsed = NoteFileParser.parse(
-            rawText = text,
-            fallbackFileName = file.name,
-            fallbackLastModifiedMillis = file.lastModified(),
-            now = now(),
-        )
-        return NoteDocument(
-            documentUri = file.uri,
-            filename = file.name ?: "note.txt",
-            title = parsed.title,
-            body = parsed.body,
-            createdAt = parsed.createdAt,
-            modifiedAt = parsed.modifiedAt,
-            isTrashed = isTrashed,
-            noteType = parsed.noteType,
-            doubleXDate = parsed.doubleXDate,
-            category = parsed.category,
-            journalDate = parsed.journalDate,
-            doubleXTemplateVersion = parsed.doubleXTemplateVersion,
-        )
+    private fun readEditableNote(file: DocumentFile, isTrashed: Boolean): EditableNote? =
+        documents.stat(file.uri)?.let { readEditableNote(it, isTrashed) }
+
+    private fun readEditableNote(entry: DocumentEntry, isTrashed: Boolean): EditableNote? {
+        val text = readRecoverableText(entry.uri) ?: return null
+        val parsed = NoteFileParser.parse(text, entry.name, entry.modifiedMillis ?: 0L, now())
+        return editableFromContent(entry.uri, entry.name, parsed, isTrashed)
     }
+
+    private fun editableFromContent(uri: Uri, filename: String, content: NoteTextContent, trashed: Boolean) =
+        EditableNote(uri, filename, content.title, content.body, content.createdAt,
+            content.modifiedAt, trashed, content.noteType, content.doubleXDate,
+            content.category, content.journalDate, content.doubleXTemplateVersion)
 
     private fun readText(uri: Uri): String? = runCatching {
         contentResolver.openInputStream(uri)?.use { input ->
-            input.readBytes().toString(StandardCharsets.UTF_8)
+            input.bufferedReader(StandardCharsets.UTF_8).readText()
         }
     }.getOrNull()
 
@@ -454,10 +514,15 @@ class NotesRepository(private val context: Context) {
         return android.util.AtomicFile(java.io.File(directory, "$key.txt"))
     }
 
+    private fun hasRecovery(uri: Uri): Boolean {
+        val recovery = recoveryFile(uri)
+        return recovery.baseFile.exists() || java.io.File(recovery.baseFile.path + ".bak").exists()
+    }
+
     private fun readRecoverableText(uri: Uri): String? {
         val recovery = recoveryFile(uri)
         if (recovery.baseFile.exists() || java.io.File(recovery.baseFile.path + ".bak").exists()) {
-            val pending = recovery.openRead().use { it.readBytes().toString(StandardCharsets.UTF_8) }
+            val pending = recovery.openRead().bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
             writeText(uri, pending)
             return pending
         }
@@ -509,6 +574,8 @@ class NotesRepository(private val context: Context) {
         note: EditableNote,
         directory: DocumentFile,
     ): DocumentFile? {
+        val byUri = DocumentFile.fromSingleUri(context, note.documentUri)
+        if (byUri != null && byUri.exists()) return byUri
         val byName = note.filename.takeIf { it.isNotBlank() }?.let { safeFindFile(directory, it) }
         if (byName != null) {
             return byName
@@ -522,6 +589,7 @@ class NotesRepository(private val context: Context) {
         note: EditableNote,
     ): SaveTarget {
         val currentName = file.name ?: return SaveTarget(file)
+        if (currentName == desiredFileName(note)) return SaveTarget(file)
         val desiredName = uniqueFileName(
             directory = directory,
             preferredName = desiredFileName(note),
@@ -553,9 +621,10 @@ class NotesRepository(private val context: Context) {
         val baseName = if (dotIndex > 0) normalized.substring(0, dotIndex) else normalized
         val extension = if (dotIndex > 0) normalized.substring(dotIndex) else ""
 
+        val names = documents.children(directory).mapTo(hashSetOf()) { it.name }
         var candidate = normalized
         var counter = 2
-        while (safeFindFile(directory, candidate) != null && candidate != excludingName) {
+        while (candidate in names && candidate != excludingName) {
             candidate = "$baseName-$counter$extension"
             counter += 1
         }
@@ -563,7 +632,10 @@ class NotesRepository(private val context: Context) {
     }
 
     private fun safeFindFile(directory: DocumentFile, name: String): DocumentFile? {
-        return runCatching { directory.findFile(name) }.getOrNull()
+        val entry = documents.children(directory).firstOrNull { it.name == name } ?: return null
+        return if (entry.uri.scheme == "file") DocumentFile.fromFile(java.io.File(entry.uri.path!!))
+            else if (entry.isDirectory) directory.listFiles().firstOrNull { it.uri == entry.uri }
+            else DocumentFile.fromSingleUri(context, entry.uri)
     }
 
     private fun slugify(title: String): String {

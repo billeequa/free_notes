@@ -1,8 +1,8 @@
-# JNotes 1.4.5
+# JNotes 1.4.6
 
-- To Do: choose Mark urgent 🚨, Mark important ❗, and Mark as long term 🎯 from the long-press or three-dot menu. Each option toggles independently; selected options show a check.
-- Combine any flags. Emoji always appear in the order 🚨 ❗ 🎯. Each of the seven combinations has its own task color, with readable light/dark palettes across all themes. Completion retains the color and emoji.
-- Add or edit flags with checkboxes in the task dialog. These replace “Save and add another.”
-- Existing black flags remain until you remove them or choose an emoji flag. Existing task IDs, text, and completion history are preserved. New tasks use emoji flags only.
+- Faster startup from a rebuildable private metadata index. Note bodies load when opened; Trash no longer delays startup.
+- Saving updates the affected entry instead of rescanning every note. Save recovery and read-back verification remain enabled.
+- Less repeated work when switching tabs, sorting tasks, and loading book covers.
+- Layouts, gestures, editing behavior, note/task file formats, filenames, and exports are unchanged. No migration or new files in the selected notes folder.
 
-Install jnotes-17.apk over the existing app. The application ID and signing key are unchanged; no uninstall is needed. This update uses to-do file format 2 and reads existing format 1 files. Older app versions cannot read format 2, so keep this version or newer after saving to-do changes.
+Install **jnotes-18.apk** over the existing app. The application ID and signing key are unchanged; no uninstall is needed. The first launch builds the private index; subsequent launches reuse it while checking for external changes in the background.

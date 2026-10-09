@@ -24,6 +24,11 @@ object NoteFileParser {
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
     private val legacyFormatter: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
+    private val metadataPrefixes = listOf(titlePrefix, createdPrefix, modifiedPrefix,
+        typePrefix, doubleXDatePrefix, categoryPrefix, journalDatePrefix, doubleXTemplatePrefix)
+
+    internal fun isMetadataLine(line: String): Boolean = metadataPrefixes.any { line.startsWith(it, ignoreCase = true) }
+
     fun serialize(content: NoteTextContent): String = buildString {
         append(titlePrefix)
         append(' ')
@@ -58,7 +63,8 @@ object NoteFileParser {
     ): NoteTextContent {
         val normalized = rawText.replace("\r\n", "\n")
         val fallbackModified = fallbackFromMillis(fallbackLastModifiedMillis) ?: now
-        val lines = normalized.split('\n')
+        var lineStart = 0
+        var bodyStart = 0
 
         var title: String? = null
         var created: OffsetDateTime? = null
@@ -71,9 +77,11 @@ object NoteFileParser {
         var titleHeaderSeen = false
         var metadataLineCount = 0
 
-        while (metadataLineCount < lines.size) {
-            val line = lines[metadataLineCount]
+        while (lineStart <= normalized.length) {
+            val lineEnd = normalized.indexOf('\n', lineStart).let { if (it < 0) normalized.length else it }
+            val line = normalized.substring(lineStart, lineEnd)
             if (line.isBlank()) {
+                bodyStart = if (metadataLineCount == 0) 0 else (lineEnd + 1).coerceAtMost(normalized.length)
                 break
             }
 
@@ -124,19 +132,17 @@ object NoteFileParser {
 
             if (!matched) {
                 metadataLineCount = 0
+                bodyStart = 0
                 break
             }
 
             metadataLineCount += 1
+            bodyStart = (lineEnd + 1).coerceAtMost(normalized.length)
+            if (lineEnd == normalized.length) break
+            lineStart = lineEnd + 1
         }
 
-        val body = when {
-            metadataLineCount == 0 -> normalized
-            metadataLineCount < lines.size && lines[metadataLineCount].isBlank() ->
-                lines.drop(metadataLineCount + 1).joinToString("\n")
-
-            else -> lines.drop(metadataLineCount).joinToString("\n")
-        }
+        val body = if (bodyStart == 0) normalized else normalized.substring(bodyStart)
 
         val inferredTitle = when {
             titleHeaderSeen -> title.orEmpty()
