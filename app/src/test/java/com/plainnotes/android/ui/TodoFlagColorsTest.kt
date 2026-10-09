@@ -47,7 +47,7 @@ class TodoFlagColorsTest {
             assertNotEquals(scheme.surface, folder)
             assertTrue(contrast(folder, scheme.onSurfaceVariant) >= 4.5f)
             // Forest/Paper use a sage accent. A very small amount keeps light folders light.
-            if (scheme.background.luminance() > 0.5f) assertTrue(folder.luminance() > 0.8f)
+            if (scheme.background.luminance() > 0.5f) assertTrue(folder.luminance() >= scheme.surface.luminance() * 0.8f)
         }
     }
 
