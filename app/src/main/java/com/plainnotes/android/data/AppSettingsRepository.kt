@@ -38,7 +38,7 @@ class AppSettingsRepository(private val context: Context) {
     }.distinctUntilChanged()
 
     val doubleXEnabled: Flow<Boolean> = context.dataStore.data.map { it[doubleXEnabledKey] ?: false }.distinctUntilChanged()
-    val showReader: Flow<Boolean> = context.dataStore.data.map { it[showReaderKey] ?: false }.distinctUntilChanged()
+    val showReader: Flow<Boolean> = context.dataStore.data.map { it[showReaderKey] ?: true }.distinctUntilChanged()
     val bookFolders: Flow<List<Uri>> = context.dataStore.data.map { prefs ->
         prefs[bookFoldersKey]?.split('\n')?.filter(String::isNotBlank)?.map(Uri::parse).orEmpty()
     }.distinctUntilChanged()

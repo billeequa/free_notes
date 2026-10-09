@@ -1,10 +1,10 @@
-# JNotes 1.4.8
+# JNotes 1.4.9
 
-- Normal view now runs top to bottom: previous-year folders oldest first, current-year month folders oldest first through this month, completed tasks from the last seven days in ordinary list form, then active tasks in their existing order. The view starts at active tasks; scroll up to see history.
-- Folder titles include ✅ and each previous year gets its own folder. The current year has month folders only. There is no Completed section heading.
-- Opening a folder reveals tasks inside one continuous, slightly wider container. Inner task cards retain their existing width and formatting; long folders still render lazily.
-- Completed cards are subtly muted toward gray while retaining recognizable flag colors, emojis, checkboxes, descriptions, and timestamps.
-- Recent tasks can appear both inline and inside their month/year folder. Editing, flagging, reopening, and deletion update the same task everywhere. All, Open, Completed, and Flagged views remain available.
-- No task files are moved, copied, or reformatted. The 1.4.6 performance improvements remain intact.
+- Normal To Do shows the last 10 completed tasks inline, oldest to newest, regardless of their completion month. All older tasks remain available in their year/month folders, with tags and edits shared everywhere.
+- Archive containers are slightly darker, and the gap before the first active task is twice the ordinary task spacing.
+- Tapping the already-selected To Do tab jumps to the first active task. Completed titles, descriptions, and timestamp labels use one consistent text color, including flagged tasks.
+- Added Medium− font size between Small+ and Medium.
+- Startup shows Notes after the tab configuration is ready, without briefly showing Ebooks. E Reader is enabled by default; an explicitly saved off setting is respected.
+- Settings uses a continuous page-colored header and scrollable top spacing so its text stays comfortably below the top bar.
 
-Install **jnotes-20.apk** over the existing app; no uninstall is needed.
+Install **jnotes-21.apk** over the existing app; no uninstall is needed.

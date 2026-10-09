@@ -72,6 +72,7 @@ fun TodoScreen(
     viewModel: PlainNotesViewModel,
     snackbar: SnackbarHostState,
     onNotes: () -> Unit,
+    jumpToOpenRequest: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
     val allItems = remember(state.todos) { state.todos.sortedBy { it.addedAt.toInstant() } }
@@ -155,6 +156,9 @@ fun TodoScreen(
             scope.launch { listState.animateScrollToItem(index) }
         }
     }
+    LaunchedEffect(jumpToOpenRequest, state.todosLoaded) {
+        if (jumpToOpenRequest > 0 && state.todosLoaded) jumpToLatest()
+    }
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
@@ -180,7 +184,9 @@ fun TodoScreen(
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
             val knownOpenHeight = with(LocalDensity.current) { openHeightPx.toDp() }
-            val folderContainer = MaterialTheme.colorScheme.surfaceContainer
+            val folderContainer = completedFolderContainer(MaterialTheme.colorScheme.surfaceContainer)
+            val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+            val completedText = completedTodoText(dark)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
@@ -285,7 +291,10 @@ fun TodoScreen(
                                 .background(folderContainer)
                                 .padding(start = 8.dp, end = 8.dp, top = 4.dp,
                                     bottom = if (row.lastInFolder) 12.dp else 4.dp)
-                            else Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                            else Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp,
+                                top = if ((filter == "Normal" || filter == "All") && completed.isNotEmpty() &&
+                                    !done && item.id == open.firstOrNull()?.id) 8.dp else 0.dp,
+                                bottom = 8.dp)
                             val cardContainer = flagColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHighest
                             Box(rowModifier) {
                                 Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
@@ -337,7 +346,7 @@ fun TodoScreen(
                                         contentColor = flagColors?.content ?: MaterialTheme.colorScheme.onSurface,
                                     )) {
                                         Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                                            val color = if (done) flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant
+                                            val color = if (done) completedText
                                                 else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Checkbox(
@@ -376,7 +385,7 @@ fun TodoScreen(
                                             }
                                             if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
                                             Spacer(Modifier.height(6.dp))
-                                            Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = if (done) completedText else flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant)
                                             DropdownMenu(expanded = menuId == row.key, onDismissRequest = { menuId = null }) {
                                                 DropdownMenuItem(text = { Text("Edit") }, onClick = { menuId = null; editingId = item.id })
                                                 TodoFlag.entries.forEach { flag ->

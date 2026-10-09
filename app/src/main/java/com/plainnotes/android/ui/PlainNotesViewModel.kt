@@ -64,7 +64,8 @@ data class PlainNotesUiState(
     val fontScale: Float = 1.0f,
     val noteSortMode: NoteSortMode = NoteSortMode.MODIFIED,
     val doubleXEnabled: Boolean = false,
-    val showReader: Boolean = false,
+    val showReader: Boolean = true,
+    val hasLoadedReaderConfig: Boolean = false,
     val doubleXPromptDate: LocalDate? = null,
     val isLoading: Boolean = true,
     val notes: List<NoteDocument> = emptyList(),
@@ -105,7 +106,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.update { it.copy(doubleXEnabled = enabled, doubleXPromptDate = if (enabled) it.doubleXPromptDate else null) }
         } }
         viewModelScope.launch { repository.showReader().collectLatest { enabled ->
-            _uiState.update { it.copy(showReader = enabled) }
+            _uiState.update { it.copy(showReader = enabled, hasLoadedReaderConfig = true) }
         } }
         viewModelScope.launch {
             repository.rootFolderUri().distinctUntilChanged().collectLatest { uri ->
@@ -124,6 +125,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                         noteSortMode = _uiState.value.noteSortMode,
                         doubleXEnabled = _uiState.value.doubleXEnabled,
                         showReader = _uiState.value.showReader,
+                        hasLoadedReaderConfig = _uiState.value.hasLoadedReaderConfig,
                         isLoading = false,
                     )
                 } else {

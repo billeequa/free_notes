@@ -4,7 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -60,10 +60,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -125,6 +128,12 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var editingNoteUri by rememberSaveable { mutableStateOf<String?>(null) }
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
+    // Build the pager only after its tab configuration is known, preventing an Ebooks flash.
+    if (!uiState.hasLoadedStorageConfig || !uiState.hasLoadedReaderConfig) {
+        PlainNotesTheme(uiState.themeMode, uiState.fontScale) { CenterLoading(Modifier.fillMaxSize()) }
+        return
+    }
+    var jumpToOpenRequest by remember { mutableIntStateOf(0) }
     val pages = remember(uiState.showReader) { homePages(uiState.showReader) }
     val lifecycleOwner = LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, viewModel) {
@@ -145,10 +154,9 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     val notesPage = pages.indexOf(HomePage.NOTES)
     val journalPage = pages.indexOf(HomePage.JOURNAL)
     val todosPage = pages.indexOf(HomePage.TODOS)
-    val pagerState = rememberPagerState(initialPage = notesPage) { pages.size }
-    LaunchedEffect(uiState.hasLoadedStorageConfig, uiState.showReader) {
-        if (uiState.hasLoadedStorageConfig) pagerState.scrollToPage(notesPage)
-    }
+    val pageCount by rememberUpdatedState(pages.size)
+    // Deliberately start every new app composition on Notes; retain page state while navigating.
+    val pagerState = remember { PagerState(currentPage = notesPage) { pageCount } }
     val folderPicker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
         uri?.let {
             screenStateHolder.removeState(AppScreen.Notes.name)
@@ -229,7 +237,8 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
             when (currentScreen) {
                 AppScreen.Notes, AppScreen.Todos -> Column(Modifier.fillMaxSize()) {
                     HomeTabs(pagerState.currentPage, pages) { page ->
-                        scope.launch { pagerState.animateScrollToPage(page) }
+                        if (page == todosPage && pagerState.currentPage == todosPage) jumpToOpenRequest++
+                        else scope.launch { pagerState.animateScrollToPage(page) }
                     }
                     HorizontalPager(
                     state = pagerState,
@@ -277,6 +286,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     state = uiState,
                     viewModel = viewModel,
                     snackbar = snackbarHostState,
+                    jumpToOpenRequest = jumpToOpenRequest,
                     onNotes = { scope.launch { pagerState.animateScrollToPage(notesPage) } },
                 )
                 else ReaderLibraryScreen(onSettings = { currentScreenName = AppScreen.Settings.name },
@@ -661,7 +671,11 @@ private fun SettingsScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
-                colors = plainNotesTopAppBarColors(),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -677,12 +691,13 @@ private fun SettingsScreen(
         Box(
             modifier = modifier
                 .padding(innerPadding)
-                .padding(start = 24.dp, end = 24.dp, top = 24.dp),
+                .padding(horizontal = 24.dp),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
+                Spacer(Modifier.height(6.dp)) // 24 dp total breathing room, including the 18-dp item gap.
                 Text(
                     text = "Notes live in",
                     style = MaterialTheme.typography.titleMedium,
@@ -721,6 +736,7 @@ private fun SettingsScreen(
                     options = listOf(
                         "Small" to (fontScale == 0.9f),
                         "Small+" to (fontScale == 0.95f),
+                        "Medium−" to (fontScale == 0.975f),
                         "Medium" to (fontScale == 1.0f),
                         "Medium+" to (fontScale == 1.075f),
                         "Large" to (fontScale == 1.15f),
@@ -731,6 +747,7 @@ private fun SettingsScreen(
                             when (label) {
                                 "Small" -> 0.9f
                                 "Small+" -> 0.95f
+                                "Medium−" -> 0.975f
                                 "Medium+" -> 1.075f
                                 "Large" -> 1.15f
                                 "XL" -> 1.3f
