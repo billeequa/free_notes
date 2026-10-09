@@ -23,6 +23,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.VerticalAlignBottom
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,8 +57,13 @@ import com.plainnotes.android.data.flagSymbols
 import com.plainnotes.android.data.isFlagged
 import com.plainnotes.android.data.withFlag
 import java.time.OffsetDateTime
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -75,12 +83,32 @@ fun TodoScreen(
     val open = remember(allItems) { allItems.filter { it.completedAt == null } }
     val items = remember(allItems, completed, open, filter) {
         when (filter) {
-            "Normal" -> completed + open
+            "Normal" -> open
+            "All" -> completed + open
             "Open" -> open
             "Completed" -> allItems.filter { it.completedAt != null }
             "Flagged" -> allItems.filter { it.isFlagged }
             else -> allItems
         }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Check only while visible; unchanged dates do not invalidate the cached folders.
+    val archiveDate by produceState(LocalDate.now() to ZoneId.systemDefault(), lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                val zone = ZoneId.systemDefault()
+                value = LocalDate.now(zone) to zone
+                delay(60_000)
+            }
+        }
+    }
+    val folders = remember(completed, archiveDate) {
+        todoArchiveFolders(completed, archiveDate.first, archiveDate.second)
+    }
+    var expandedFolders by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    val rows = remember(items, folders, expandedFolders, filter) {
+        if (filter == "Normal") groupedTodoRows(open, folders, expandedFolders)
+        else items.map { TodoListRow.Task(it) }
     }
     val listState = rememberLazyListState()
     val openHeights = remember { mutableStateMapOf<String, Int>() }
@@ -96,11 +124,22 @@ fun TodoScreen(
     var creating by rememberSaveable { mutableStateOf(false) }
     var newTaskId by rememberSaveable { mutableStateOf(java.util.UUID.randomUUID().toString()) }
     var deleteId by remember { mutableStateOf<String?>(null) }
+    var scrollToTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { viewModel.loadTodos() }
-    LaunchedEffect(state.todosLoaded, filter) {
-        if (state.todosLoaded && !positioned) {
-            val index = if (filter == "Normal" && allItems.isNotEmpty()) completed.size + 1 else 0
-            if (index >= 0) listState.scrollToItem(index)
+    LaunchedEffect(open) { openHeights.keys.retainAll(open.map { it.id }.toSet()) }
+    LaunchedEffect(state.todosLoaded, filter, rows, scrollToTaskId) {
+        if (state.todosLoaded && scrollToTaskId != null) {
+            val taskIndex = rows.indexOfFirst { it is TodoListRow.Task && it.item.id == scrollToTaskId }
+            if (taskIndex >= 0) {
+                listState.animateScrollToItem(taskIndex + 1)
+                scrollToTaskId = null
+                positioned = true
+            }
+        } else if (state.todosLoaded && !positioned) {
+            val index = if (filter == "All") {
+                if (open.isNotEmpty()) completed.size + 1 else completed.size
+            } else 0
+            listState.scrollToItem(index)
             positioned = true
         }
     }
@@ -109,8 +148,17 @@ fun TodoScreen(
         todos.map { if (it.id == id && it.completedAt == null) it.copy(completedAt = OffsetDateTime.now()) else it }
     }
     fun jumpToLatest() {
-        val index = if (filter == "Normal" && allItems.isNotEmpty()) completed.size + 1 else 0
-        if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
+        revealedId = null
+        checkboxConfirmId = null
+        if (filter != "Normal" && filter != "All") {
+            positioned = false
+            filter = "Normal"
+        } else {
+            val index = if (filter == "All") {
+                if (open.isNotEmpty()) completed.size + 1 else completed.size
+            } else 0
+            scope.launch { listState.animateScrollToItem(index) }
+        }
     }
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -170,6 +218,8 @@ fun TodoScreen(
                             DropdownMenuItem(text = { Text(label) }, onClick = {
                                 positioned = false
                                 revealedId = null
+                                checkboxConfirmId = null
+                                menuId = null
                                 filter = label
                                 filterMenu = false
                             })
@@ -183,143 +233,171 @@ fun TodoScreen(
                 }
             }
                 }
-                if (items.isEmpty()) item(key = "empty") {
+                if (rows.isEmpty()) item(key = "empty") {
                     Text(if (allItems.isEmpty()) "Tap + to add your first to-do." else "No ${filter.lowercase()} tasks.", Modifier.padding(24.dp))
                 }
-                items(items, key = { it.id }) { item ->
-                    val done = item.completedAt != null
-                    val flagColors = todoFlagColors(item.flags, MaterialTheme.colorScheme.surface.luminance() < 0.5f)
-                    val revealed = revealedId == item.id && !done
-                    val checkboxPending = checkboxConfirmId == item.id && !done
-                    val completionPending = revealed || checkboxPending
-                    val revealWidth = with(LocalDensity.current) { 64.dp.toPx() }
-                    var dragOffset by remember(item.id) { mutableStateOf<Float?>(null) }
-                    var gestureStartedWithReveal by remember(item.id) { mutableStateOf(false) }
-                    val settledOffset by animateFloatAsState(
-                        targetValue = dragOffset ?: when {
-                            revealed -> -revealWidth
-                            checkboxPending -> revealWidth
-                            else -> 0f
-                        },
-                        animationSpec = tween(if (dragOffset != null) 0 else 160), label = "completion reveal",
-                    )
-                    val offset = dragOffset ?: settledOffset
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .onSizeChanged { if (!done) openHeights[item.id] = it.height }) {
-                        if (!done && offset < -1f) IconButton(
-                            onClick = { revealedId = null; complete(item.id) },
-                            enabled = revealed,
-                            modifier = Modifier.align(Alignment.CenterEnd).size(56.dp)
-                                .graphicsLayer { alpha = (-offset / revealWidth).coerceIn(0f, 1f) }
-                                .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
-                        ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
-                        if (!done && offset > 1f) IconButton(
-                            onClick = { checkboxConfirmId = null; complete(item.id) },
-                            enabled = checkboxPending,
-                            modifier = Modifier.align(Alignment.CenterStart).size(56.dp)
-                                .graphicsLayer { alpha = (offset / revealWidth).coerceIn(0f, 1f) }
-                                .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
-                        ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
-                        Card(Modifier.fillMaxWidth().graphicsLayer { translationX = offset }.todoGestures(
-                            onTap = {
-                                if (revealed) revealedId = null
-                                else if (checkboxPending) checkboxConfirmId = null
-                                else editingId = item.id
-                            },
-                            onMenu = { revealedId = null; checkboxConfirmId = null; menuId = item.id },
-                            onDragStart = {
-                                gestureStartedWithReveal = revealed || checkboxPending
-                                dragOffset = settledOffset
-                            },
-                            onDrag = { amount -> if (!done) {
-                                val min = if (gestureStartedWithReveal && checkboxPending) 0f else -revealWidth
-                                val max = if (gestureStartedWithReveal && checkboxPending) revealWidth else 0f
-                                dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(min, max)
-                            } },
-                            onDragEnd = { distance ->
-                                if (gestureStartedWithReveal) {
-                                    revealedId = null
-                                    checkboxConfirmId = null
-                                } else if (distance >= revealWidth) { revealedId = null; onNotes() }
-                                else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
-                                else revealedId = null
-                                dragOffset = null
-                                gestureStartedWithReveal = false
-                            },
-                            onDragCancel = { dragOffset = null; gestureStartedWithReveal = false },
-                        ), colors = CardDefaults.cardColors(
-                            containerColor = flagColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHighest,
-                            contentColor = flagColors?.content ?: MaterialTheme.colorScheme.onSurface,
-                        )) {
-                            Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                                val color = if (done) flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant
-                                    else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(
-                                        checked = done || completionPending,
-                                        onCheckedChange = {
-                                            if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
-                                            else if (completionPending) { revealedId = null; checkboxConfirmId = null }
-                                            else { revealedId = null; checkboxConfirmId = item.id }
-                                        },
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = if (completionPending)
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
-                                            else MaterialTheme.colorScheme.primary,
-                                        ),
-                                        modifier = Modifier.semantics {
-                                            contentDescription = when {
-                                                done -> "Reopen: ${item.title}"
-                                                completionPending -> "Cancel completion: ${item.title}"
-                                                else -> "Show completion confirmation: ${item.title}"
-                                            }
-                                            stateDescription = when {
-                                                done -> "Completed"
-                                                completionPending -> "Awaiting confirmation"
-                                                else -> "Incomplete"
-                                            }
-                                        },
-                                    )
-                                Text(
-                                    modifier = Modifier.weight(1f),
-                                    text = listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = color,
-                                )
-
-                                    IconButton(onClick = { menuId = item.id }) { Icon(Icons.Rounded.MoreVert, "Task actions") }
+                if (filter == "Normal" && open.isEmpty() && folders.isNotEmpty()) item(key = "open-empty") {
+                    Text("No open tasks.", Modifier.padding(16.dp))
+                }
+                items(rows, key = { it.key }, contentType = { it::class }) { row ->
+                    when (row) {
+                        TodoListRow.CompletedHeader -> Text("Completed", style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
+                        is TodoListRow.Folder -> {
+                            val folder = row.folder
+                            val expanded = folder.id in expandedFolders
+                            Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+                                .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
+                                .clickable(role = Role.Button) {
+                                    expandedFolders = if (expanded) expandedFolders - folder.id else expandedFolders + folder.id
+                                    menuId = null
+                                }) {
+                                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Icon(Icons.Rounded.Folder, null)
+                                    Text(folder.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                    Text(folder.items.size.toString(), style = MaterialTheme.typography.labelLarge)
+                                    Icon(if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ChevronRight, null)
                                 }
-                                if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
-                                Spacer(Modifier.height(6.dp))
-                                Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant)
-                                DropdownMenu(expanded = menuId == item.id, onDismissRequest = { menuId = null }) {
-                                    DropdownMenuItem(text = { Text("Edit") }, onClick = { menuId = null; editingId = item.id })
-                                    TodoFlag.entries.forEach { flag ->
-                                        DropdownMenuItem(
-                                            text = { Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}") },
-                                            trailingIcon = { if (flag in item.flags) Icon(Icons.Rounded.Check, "Selected") },
-                                            onClick = {
-                                                menuId = null
-                                                change { todos -> todos.map { if (it.id == item.id) it.withFlag(flag) else it } }
-                                            },
+                            }
+                        }
+                        is TodoListRow.Task -> {
+                            val item = row.item
+                            val done = item.completedAt != null
+                            val flagColors = todoFlagColors(item.flags, MaterialTheme.colorScheme.surface.luminance() < 0.5f)
+                            val revealed = revealedId == item.id && !done
+                            val checkboxPending = checkboxConfirmId == item.id && !done
+                            val completionPending = revealed || checkboxPending
+                            val revealWidth = with(LocalDensity.current) { 64.dp.toPx() }
+                            var dragOffset by remember(row.key) { mutableStateOf<Float?>(null) }
+                            var gestureStartedWithReveal by remember(row.key) { mutableStateOf(false) }
+                            val settledOffset by animateFloatAsState(
+                                targetValue = dragOffset ?: when {
+                                    revealed -> -revealWidth
+                                    checkboxPending -> revealWidth
+                                    else -> 0f
+                                },
+                                animationSpec = tween(if (dragOffset != null) 0 else 160), label = "completion reveal",
+                            )
+                            val offset = dragOffset ?: settledOffset
+                            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .onSizeChanged { if (!done) openHeights[item.id] = it.height }) {
+                                if (!done && offset < -1f) IconButton(
+                                    onClick = { revealedId = null; complete(item.id) },
+                                    enabled = revealed,
+                                    modifier = Modifier.align(Alignment.CenterEnd).size(56.dp)
+                                        .graphicsLayer { alpha = (-offset / revealWidth).coerceIn(0f, 1f) }
+                                        .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                                ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
+                                if (!done && offset > 1f) IconButton(
+                                    onClick = { checkboxConfirmId = null; complete(item.id) },
+                                    enabled = checkboxPending,
+                                    modifier = Modifier.align(Alignment.CenterStart).size(56.dp)
+                                        .graphicsLayer { alpha = (offset / revealWidth).coerceIn(0f, 1f) }
+                                        .background(Color(0xFF208447), RoundedCornerShape(12.dp)),
+                                ) { Icon(Icons.Rounded.Check, "Confirm completion: ${item.title}", tint = Color.White) }
+                                Card(Modifier.fillMaxWidth().graphicsLayer { translationX = offset }.todoGestures(
+                                    onTap = {
+                                        if (revealed) revealedId = null
+                                        else if (checkboxPending) checkboxConfirmId = null
+                                        else editingId = item.id
+                                    },
+                                    onMenu = { revealedId = null; checkboxConfirmId = null; menuId = row.key },
+                                    onDragStart = {
+                                        gestureStartedWithReveal = revealed || checkboxPending
+                                        dragOffset = settledOffset
+                                    },
+                                    onDrag = { amount -> if (!done) {
+                                        val min = if (gestureStartedWithReveal && checkboxPending) 0f else -revealWidth
+                                        val max = if (gestureStartedWithReveal && checkboxPending) revealWidth else 0f
+                                        dragOffset = ((dragOffset ?: settledOffset) + amount).coerceIn(min, max)
+                                    } },
+                                    onDragEnd = { distance ->
+                                        if (gestureStartedWithReveal) {
+                                            revealedId = null
+                                            checkboxConfirmId = null
+                                        } else if (distance >= revealWidth) { revealedId = null; onNotes() }
+                                        else if (!done && (dragOffset ?: 0f) <= -revealWidth / 2) revealedId = item.id
+                                        else revealedId = null
+                                        dragOffset = null
+                                        gestureStartedWithReveal = false
+                                    },
+                                    onDragCancel = { dragOffset = null; gestureStartedWithReveal = false },
+                                ), colors = CardDefaults.cardColors(
+                                    containerColor = flagColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    contentColor = flagColors?.content ?: MaterialTheme.colorScheme.onSurface,
+                                )) {
+                                    Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                        val color = if (done) flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant
+                                            else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Checkbox(
+                                                checked = done || completionPending,
+                                                onCheckedChange = {
+                                                    if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
+                                                    else if (completionPending) { revealedId = null; checkboxConfirmId = null }
+                                                    else { revealedId = null; checkboxConfirmId = item.id }
+                                                },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = if (completionPending)
+                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                                                    else MaterialTheme.colorScheme.primary,
+                                                ),
+                                                modifier = Modifier.semantics {
+                                                    contentDescription = when {
+                                                        done -> "Reopen: ${item.title}"
+                                                        completionPending -> "Cancel completion: ${item.title}"
+                                                        else -> "Show completion confirmation: ${item.title}"
+                                                    }
+                                                    stateDescription = when {
+                                                        done -> "Completed"
+                                                        completionPending -> "Awaiting confirmation"
+                                                        else -> "Incomplete"
+                                                    }
+                                                },
+                                            )
+                                        Text(
+                                            modifier = Modifier.weight(1f),
+                                            text = listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = color,
                                         )
+
+                                            IconButton(onClick = { menuId = row.key }) { Icon(Icons.Rounded.MoreVert, "Task actions") }
+                                        }
+                                        if (item.description.isNotBlank()) Text(item.description, color = color, style = MaterialTheme.typography.bodyMedium)
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(item.completedAt?.let { "Completed: ${todoTimestamp(it)}" } ?: "Added: ${todoTimestamp(item.addedAt)}", style = MaterialTheme.typography.labelSmall, color = flagColors?.completedContent ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                                        DropdownMenu(expanded = menuId == row.key, onDismissRequest = { menuId = null }) {
+                                            DropdownMenuItem(text = { Text("Edit") }, onClick = { menuId = null; editingId = item.id })
+                                            TodoFlag.entries.forEach { flag ->
+                                                DropdownMenuItem(
+                                                    text = { Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}") },
+                                                    trailingIcon = { if (flag in item.flags) Icon(Icons.Rounded.Check, "Selected") },
+                                                    onClick = {
+                                                        menuId = null
+                                                        change { todos -> todos.map { if (it.id == item.id) it.withFlag(flag) else it } }
+                                                    },
+                                                )
+                                            }
+                                            if (item.flagged) DropdownMenuItem(text = { Text("Remove legacy flag") }, onClick = {
+                                                menuId = null
+                                                change { todos -> todos.map { if (it.id == item.id) it.copy(flagged = false) else it } }
+                                            })
+                                            DropdownMenuItem(text = { Text(if (done) "Mark incomplete" else "Show completion check") }, onClick = {
+                                                menuId = null
+                                                if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
+                                                else revealedId = item.id
+                                            })
+                                            DropdownMenuItem(text = { Text("Delete") }, onClick = { menuId = null; deleteId = item.id })
+                                        }
                                     }
-                                    if (item.flagged) DropdownMenuItem(text = { Text("Remove legacy flag") }, onClick = {
-                                        menuId = null
-                                        change { todos -> todos.map { if (it.id == item.id) it.copy(flagged = false) else it } }
-                                    })
-                                    DropdownMenuItem(text = { Text(if (done) "Mark incomplete" else "Show completion check") }, onClick = {
-                                        menuId = null
-                                        if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
-                                        else revealedId = item.id
-                                    })
-                                    DropdownMenuItem(text = { Text("Delete") }, onClick = { menuId = null; deleteId = item.id })
                                 }
                             }
                         }
                     }
                 }
-                if (filter == "Normal") {
+                if (filter == "All") {
                     if (open.isEmpty()) item(key = "open-empty") {
                         Text("No open tasks. Scroll up for completed tasks.", Modifier.padding(16.dp))
                     }
@@ -348,8 +426,8 @@ fun TodoScreen(
                 creating = false
                 editingId = null
                 if (original == null) {
+                    scrollToTaskId = item.id
                     filter = "Normal"
-                    scope.launch { listState.animateScrollToItem(state.todos.size + 1) }
                 }
             }
             saved
