@@ -34,9 +34,10 @@ data class BookEntry(
 class BookLibrary(private val context: Context) {
     private val settings = AppSettingsRepository(context)
     private val cache = context.getSharedPreferences("book_library", Context.MODE_PRIVATE)
-    private val http = DefaultHttpClient()
-    private val retriever = AssetRetriever(context.contentResolver, http)
-    private val opener = PublicationOpener(DefaultPublicationParser(context, http, retriever, pdfFactory = null))
+    private val documents = com.plainnotes.android.data.DocumentDirectory(context.contentResolver)
+    private val http by lazy { DefaultHttpClient() }
+    private val retriever by lazy { AssetRetriever(context.contentResolver, http) }
+    private val opener by lazy { PublicationOpener(DefaultPublicationParser(context, http, retriever, pdfFactory = null)) }
 
     suspend fun folders(): List<Uri> = settings.bookFolders.first()
 
@@ -58,7 +59,7 @@ class BookLibrary(private val context: Context) {
             val root = DocumentFile.fromTreeUri(context, folder) ?: return@flatMap emptyList()
             epubFiles(root).map { file ->
                 val key = key(file.uri)
-                val stamp = "${file.lastModified()}:${file.length()}"
+                val stamp = "${file.modifiedMillis}:${file.size}"
                 var metadata = runCatching { JSONObject(cache.getString("meta:$key", "{}")!!) }.getOrDefault(JSONObject())
                 if (metadata.optString("stamp") != stamp || !metadata.has("title")) {
                     metadata = try {
@@ -67,12 +68,12 @@ class BookLibrary(private val context: Context) {
                         publication.cover()?.let { bitmap ->
                             coverFile.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 85, it) }
                         }
-                        JSONObject().put("title", publication.metadata.title ?: file.name?.removeSuffix(".epub"))
+                        JSONObject().put("title", publication.metadata.title ?: file.name.removeSuffix(".epub"))
                             .put("author", publication.metadata.authors.joinToString(", ") { it.name })
                             .put("cover", if (coverFile.exists()) coverFile.path else "")
                             .put("stamp", stamp)
                     } catch (_: Exception) {
-                        JSONObject().put("title", file.name?.removeSuffix(".epub") ?: "Unknown book")
+                        JSONObject().put("title", file.name.removeSuffix(".epub"))
                             .put("author", "").put("cover", "").put("stamp", stamp)
                     }
                     cache.edit().putString("meta:$key", metadata.toString()).apply()
@@ -84,19 +85,20 @@ class BookLibrary(private val context: Context) {
         }.distinctBy { it.uri.toString() }.sortedWith(compareByDescending<BookEntry> { it.lastRead }.thenBy { it.title })
     }
 
-    private fun epubFiles(root: DocumentFile): List<DocumentFile> {
+    private fun epubFiles(root: DocumentFile): List<com.plainnotes.android.data.DocumentEntry> {
         val seen = mutableSetOf<String>()
-        fun visit(folder: DocumentFile): List<DocumentFile> {
-            if (!seen.add(folder.uri.toString())) return emptyList()
-            return runCatching { folder.listFiles().toList() }.getOrDefault(emptyList()).flatMap { child ->
+        val files = mutableListOf<com.plainnotes.android.data.DocumentEntry>()
+        fun visit(folder: DocumentFile) {
+            if (!seen.add(folder.uri.toString())) return
+            documents.children(folder).forEach { entry ->
                 when {
-                    child.isDirectory -> visit(child)
-                    child.isFile && child.name?.endsWith(".epub", ignoreCase = true) == true -> listOf(child)
-                    else -> emptyList()
+                    entry.isDirectory -> folder.listFiles().firstOrNull { it.uri == entry.uri }?.let(::visit)
+                    entry.name.endsWith(".epub", ignoreCase = true) -> files.add(entry)
                 }
             }
         }
-        return visit(root)
+        visit(root)
+        return files
     }
 
     suspend fun open(uri: Uri): Publication = withContext(Dispatchers.IO) {

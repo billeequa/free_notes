@@ -1,7 +1,8 @@
 package com.plainnotes.android.ui
 
 import android.content.Intent
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import com.plainnotes.android.reader.CoverThumbnails
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
@@ -28,40 +29,43 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalDensity
 
 @Composable
-fun ReaderLibraryScreen(onSettings: () -> Unit) {
+fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true) {
     val context = LocalContext.current
-    val library = remember { BookLibrary(context) }
-    val scope = rememberCoroutineScope()
-    var books by remember { mutableStateOf<List<BookEntry>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var refresh by remember { mutableIntStateOf(0) }
+    val model: ReaderLibraryViewModel = viewModel()
+    val state by model.state.collectAsStateWithLifecycle()
+    val books = state.books
+    val loading = state.loading
+    val error = state.error
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
+    val isActive by rememberUpdatedState(active)
+    DisposableEffect(lifecycleOwner, model) {
+        var paused = false
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) paused = true
+            if (event == Lifecycle.Event.ON_RESUME && paused) {
+                paused = false
+                if (isActive) model.load(force = true)
+            }
+        }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val picker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
-        if (uri != null) scope.launch {
-            try { library.addFolder(uri); refresh++ }
-            catch (e: Exception) { error = e.message ?: "Cannot access this folder." }
-        }
+        if (uri != null) model.addFolder(uri)
     }
-    LaunchedEffect(refresh) {
-        loading = true
-        try { books = library.scan(); error = null }
-        catch (e: Exception) { error = e.message ?: "Cannot refresh books." }
-        finally { loading = false }
-    }
-    // A newly opened tab is composed again, so its library is rescanned; refresh is also explicit.
+    LaunchedEffect(active) { if (active) model.load() }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Text("E Reader", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = { refresh++ }) { Text("Refresh") }
+            TextButton(onClick = { model.load(force = true) }) { Text("Refresh") }
         }
         if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
         when {
@@ -82,10 +86,16 @@ fun ReaderLibraryScreen(onSettings: () -> Unit) {
                             .putExtra("book_uri", book.uri.toString()))
                     }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            val cover = remember(book.coverPath) {
-                                book.coverPath?.let { BitmapFactory.decodeFile(it) }?.asImageBitmap()
+                            val density = LocalDensity.current
+                            val width = with(density) { 60.dp.roundToPx() }
+                            val height = with(density) { 90.dp.roundToPx() }
+                            val cover by produceState<Bitmap?>(null, book.coverPath, width, height) {
+                                value = withContext(Dispatchers.IO) {
+                                    book.coverPath?.let { CoverThumbnails.load(it, width, height) }
+                                }
                             }
-                            if (cover != null) Image(cover, book.title, Modifier.size(width = 60.dp, height = 90.dp))
+                            if (cover != null) Image(cover!!.asImageBitmap(), book.title, Modifier.size(width = 60.dp, height = 90.dp))
+                            else if (book.coverPath != null) Spacer(Modifier.size(width = 60.dp, height = 90.dp))
                             Column(Modifier.padding(start = 12.dp)) {
                                 Text(book.title, style = MaterialTheme.typography.titleMedium)
                                 if (book.author.isNotBlank()) Text(book.author)

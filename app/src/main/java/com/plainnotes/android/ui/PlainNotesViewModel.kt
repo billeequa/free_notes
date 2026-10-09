@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 enum class ThemeMode(val storageValue: String, val label: String) {
     LIGHT("light", "Paper"),
@@ -68,6 +70,7 @@ data class PlainNotesUiState(
     val notes: List<NoteDocument> = emptyList(),
     val journals: List<NoteDocument> = emptyList(),
     val trash: List<NoteDocument> = emptyList(),
+    val trashLoading: Boolean = false,
     val todos: List<TodoItem> = emptyList(),
     val todosLoaded: Boolean = false,
     val todoError: String? = null,
@@ -79,10 +82,25 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     private val todoMutex = Mutex()
     private val todoActions = TodoActionQueue(viewModelScope)
     private var editorSession: NoteEditorSession? = null
+    private var selectedRoot: Uri? = null
+    private var refreshJob: Job? = null
+    private var trashJob: Job? = null
     private val _uiState = MutableStateFlow(PlainNotesUiState())
     val uiState: StateFlow<PlainNotesUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            repository.noteIndex.collect { snapshot ->
+                if (snapshot != null && snapshot.folderUri == selectedRoot?.toString()) {
+                    _uiState.update { state ->
+                        val notes = sortNotes(snapshot.notes, state.noteSortMode)
+                        state.copy(selectedFolderName = snapshot.folderName, isLoading = false,
+                            notes = notes.filter { it.category == NoteCategory.NOTES },
+                            journals = notes.filter { it.category == NoteCategory.JOURNAL })
+                    }
+                }
+            }
+        }
         viewModelScope.launch { repository.doubleXEnabled().collectLatest { enabled ->
             _uiState.update { it.copy(doubleXEnabled = enabled, doubleXPromptDate = if (enabled) it.doubleXPromptDate else null) }
         } }
@@ -90,7 +108,13 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.update { it.copy(showReader = enabled) }
         } }
         viewModelScope.launch {
-            repository.rootFolderUri().collectLatest { uri ->
+            repository.rootFolderUri().distinctUntilChanged().collectLatest { uri ->
+                refreshJob?.cancel()
+                trashJob?.cancel()
+                selectedRoot = uri
+                editorSession = null
+                _uiState.update { it.copy(notes = emptyList(), journals = emptyList(), trash = emptyList(),
+                    todos = emptyList(), todosLoaded = false, todoError = null) }
                 if (uri == null) {
                     _uiState.value = PlainNotesUiState(
                         hasLoadedStorageConfig = true,
@@ -103,10 +127,22 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                         isLoading = false,
                     )
                 } else {
-                    try { refreshState(); loadTodos() } catch (error: CancellationException) {
+                    try {
+                        val cached = repository.loadCachedNotes(uri)
+                        _uiState.update { state ->
+                            val notes = sortNotes(cached?.notes.orEmpty(), state.noteSortMode)
+                            state.copy(hasLoadedStorageConfig = true, isStorageConfigured = true,
+                                selectedFolderName = cached?.folderName, isLoading = cached == null,
+                                notes = notes.filter { it.category == NoteCategory.NOTES },
+                                journals = notes.filter { it.category == NoteCategory.JOURNAL })
+                        }
+                        // Tasks are independent of note/Trash scans, including the first index build.
+                        loadTodos(force = true)
+                        refresh()
+                    } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
-                        _uiState.update { it.copy(hasLoadedStorageConfig = true, isStorageConfigured = true) }
+                        _uiState.update { it.copy(hasLoadedStorageConfig = true, isStorageConfigured = true, isLoading = false) }
                         postStatus(error.message ?: "Unable to open the notes folder.")
                     }
                 }
@@ -128,10 +164,8 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             repository.noteSortMode().collectLatest { sortMode ->
                 val parsed = NoteSortMode.fromStorage(sortMode)
-                _uiState.update { state -> state.copy(noteSortMode = parsed) }
-                if (_uiState.value.isStorageConfigured) {
-                    refreshState()
-                }
+                _uiState.update { state -> state.copy(noteSortMode = parsed,
+                    notes = sortNotes(state.notes, parsed), journals = sortNotes(state.journals, parsed)) }
             }
         }
     }
@@ -141,8 +175,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             try {
                 _uiState.update { it.copy(todos = emptyList(), todosLoaded = false, todoError = null) }
                 repository.persistRootFolder(uri)
-                refreshState()
-                loadTodos()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -152,7 +184,8 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        if (refreshJob?.isActive == true || selectedRoot == null) return
+        refreshJob = viewModelScope.launch {
             try {
                 refreshState()
             } catch (error: CancellationException) {
@@ -166,7 +199,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     suspend fun createNote(): EditableNote? {
         return try {
             val created = repository.createBlankNote()
-            refresh()
             created
         } catch (error: CancellationException) {
             throw error
@@ -178,7 +210,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
 
     suspend fun createJournalNote(): EditableNote? = try {
         val note = repository.createJournalNote()
-        refresh()
         note
     } catch (error: CancellationException) {
         throw error
@@ -191,7 +222,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 repository.setNoteCategory(uri, category)
-                refreshState()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -203,7 +233,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     suspend fun openDoubleXNote(date: LocalDate = LocalDate.now()): EditableNote? = try {
         val note = repository.findOrCreateDoubleXNote(date)
         _uiState.update { it.copy(doubleXPromptDate = null) }
-        refresh()
         note
     } catch (error: CancellationException) {
         throw error
@@ -239,7 +268,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     suspend fun saveNote(note: EditableNote): EditableNote? {
         return try {
             val saved = repository.saveNote(note)
-            refresh()
             saved
         } catch (error: CancellationException) {
             throw error
@@ -254,7 +282,8 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             try {
                 repository.moveToTrash(uriString)
                 onDone?.invoke()
-                refresh()
+                // Active entries were removed by the repository without rescanning.
+                if (_uiState.value.trash.isNotEmpty()) loadTrash()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -267,7 +296,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 repository.restoreFromTrash(uriString)
-                refreshState()
+                _uiState.update { it.copy(trash = it.trash.filterNot { note -> note.id == uriString }) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -280,7 +309,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 repository.deletePermanently(uriString)
-                refreshState()
+                _uiState.update { it.copy(trash = it.trash.filterNot { note -> note.id == uriString }) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -302,16 +331,18 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun loadTodos() {
+    fun loadTodos(force: Boolean = false) {
+        val root = selectedRoot ?: return
         viewModelScope.launch {
             todoMutex.withLock {
+                if (root != selectedRoot || (!force && _uiState.value.todosLoaded)) return@withLock
                 try {
                     val items = repository.loadTodos()
-                    _uiState.update { it.copy(todos = items, todosLoaded = true, todoError = null) }
+                    if (root == selectedRoot) _uiState.update { it.copy(todos = items, todosLoaded = true, todoError = null) }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    _uiState.update { it.copy(todosLoaded = false, todoError = error.message ?: "Unable to load to-dos.") }
+                    if (root == selectedRoot) _uiState.update { it.copy(todosLoaded = false, todoError = error.message ?: "Unable to load to-dos.") }
                 }
             }
         }
@@ -324,10 +355,12 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     suspend fun changeTodos(change: (List<TodoItem>) -> List<TodoItem>): Boolean = withContext(NonCancellable) {
         todoMutex.withLock {
             if (!_uiState.value.todosLoaded) return@withLock false
+            val root = selectedRoot
             try {
                 val before = _uiState.value.todos
                 val updated = change(before)
                 repository.saveTodos(updated)
+                if (root != selectedRoot) return@withLock false
                 _uiState.update { it.copy(todos = updated, todoError = null) }
                 if (_uiState.value.doubleXEnabled) {
                     val newCompletions = DoubleXDay.newlyCompleted(before, updated)
@@ -391,7 +424,6 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 repository.renameNote(uriString, newTitle)
-                refreshState()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -401,24 +433,35 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun refreshState() {
-        _uiState.update { it.copy(isLoading = true) }
         try {
-            val folderInfo = repository.getFolderInfo()
-            val notes = sortNotes(repository.listActiveNotes(), _uiState.value.noteSortMode)
-            val trash = repository.listTrashedNotes()
-            _uiState.update { state ->
-                state.copy(
-                    hasLoadedStorageConfig = true,
-                    isStorageConfigured = folderInfo != null,
-                    selectedFolderName = folderInfo?.displayName,
-                    isLoading = false,
-                    notes = notes.filter { it.category == NoteCategory.NOTES },
-                    journals = notes.filter { it.category == NoteCategory.JOURNAL },
-                    trash = trash,
-                )
-            }
+            repository.listActiveNotes()
         } finally {
             _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun loadTrash() {
+        if (trashJob?.isActive == true) return
+        val root = selectedRoot ?: return
+        trashJob = viewModelScope.launch {
+            _uiState.update { it.copy(trashLoading = it.trash.isEmpty()) }
+            try {
+                val notes = repository.listTrashedNotes()
+                if (root == selectedRoot) _uiState.update { it.copy(trash = notes) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                postStatus(error.message ?: "Unable to refresh notes.")
+            } finally {
+                _uiState.update { it.copy(trashLoading = false) }
+            }
+        }
+    }
+
+    fun onResume() {
+        if (_uiState.value.hasLoadedStorageConfig && selectedRoot != null) {
+            refresh()
+            loadTodos(force = true)
         }
     }
 

@@ -67,14 +67,21 @@ fun TodoScreen(
     onNotes: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val allItems = state.todos.sortedBy { it.addedAt.toInstant() }
+    val allItems = remember(state.todos) { state.todos.sortedBy { it.addedAt.toInstant() } }
     var filter by rememberSaveable { mutableStateOf("Normal") }
-    val filteredItems = allItems.filter {
-        when (filter) { "Open" -> it.completedAt == null; "Completed" -> it.completedAt != null; "Flagged" -> it.isFlagged; else -> true }
+    val completed = remember(allItems) {
+        allItems.filter { it.completedAt != null }.sortedBy { it.completedAt!!.toInstant() }
     }
-    val completed = allItems.filter { it.completedAt != null }.sortedBy { it.completedAt!!.toInstant() }
-    val open = allItems.filter { it.completedAt == null }
-    val items = if (filter == "Normal") completed + open else filteredItems
+    val open = remember(allItems) { allItems.filter { it.completedAt == null } }
+    val items = remember(allItems, completed, open, filter) {
+        when (filter) {
+            "Normal" -> completed + open
+            "Open" -> open
+            "Completed" -> allItems.filter { it.completedAt != null }
+            "Flagged" -> allItems.filter { it.isFlagged }
+            else -> allItems
+        }
+    }
     val listState = rememberLazyListState()
     val openHeights = remember { mutableStateMapOf<String, Int>() }
     var revealedId by remember { mutableStateOf<String?>(null) }
@@ -119,7 +126,7 @@ fun TodoScreen(
         when {
             state.todoError != null -> Column(Modifier.padding(padding).padding(24.dp)) {
                 Text(state.todoError)
-                TextButton(onClick = viewModel::loadTodos) { Text("Retry") }
+                TextButton(onClick = { viewModel.loadTodos(force = true) }) { Text("Retry") }
             }
             !state.todosLoaded -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()

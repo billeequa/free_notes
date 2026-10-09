@@ -125,7 +125,23 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var editingNoteUri by rememberSaveable { mutableStateOf<String?>(null) }
     var editorStartsInEditMode by rememberSaveable { mutableStateOf(false) }
     val currentScreen = AppScreen.valueOf(currentScreenName)
-    val pages = homePages(uiState.showReader)
+    val pages = remember(uiState.showReader) { homePages(uiState.showReader) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, viewModel) {
+        var paused = false
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) paused = true
+            if (event == Lifecycle.Event.ON_RESUME && paused) {
+                paused = false
+                viewModel.onResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(currentScreenName) {
+        if (currentScreenName == AppScreen.Trash.name) viewModel.loadTrash()
+    }
     val notesPage = pages.indexOf(HomePage.NOTES)
     val journalPage = pages.indexOf(HomePage.JOURNAL)
     val todosPage = pages.indexOf(HomePage.TODOS)
@@ -217,6 +233,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     }
                     HorizontalPager(
                     state = pagerState,
+                    key = { pages[it].name },
                     modifier = Modifier.weight(1f),
                     beyondViewportPageCount = 1,
                     // To Do owns task swipes and its right-swipe-to-Notes shortcut.
@@ -262,7 +279,8 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     snackbar = snackbarHostState,
                     onNotes = { scope.launch { pagerState.animateScrollToPage(notesPage) } },
                 )
-                else ReaderLibraryScreen(onSettings = { currentScreenName = AppScreen.Settings.name })
+                else ReaderLibraryScreen(onSettings = { currentScreenName = AppScreen.Settings.name },
+                    active = pagerState.currentPage == page)
                 }
     
                 }
@@ -284,7 +302,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     
                 AppScreen.Trash -> TrashScreen(
                     notes = uiState.trash,
-                    isLoading = uiState.isLoading,
+                    isLoading = uiState.trashLoading,
                     onBack = { currentScreenName = AppScreen.Settings.name },
                     onRestore = { viewModel.restoreFromTrash(it.documentUri.toString()) },
                     onDeletePermanently = { viewModel.deletePermanently(it.documentUri.toString()) },
@@ -592,9 +610,11 @@ private fun NoteListRow(
                 )
                 Spacer(modifier = Modifier.size(12.dp))
                 Text(
-                    text = if (note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() == LocalDate.now())
-                        note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
-                    else shortDate(note.modifiedAt),
+                    text = remember(note.createdAt, note.modifiedAt, LocalDate.now(), ZoneId.systemDefault()) {
+                        if (note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() == LocalDate.now())
+                            note.createdAt.atZoneSameInstant(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
+                        else shortDate(note.modifiedAt)
+                    },
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

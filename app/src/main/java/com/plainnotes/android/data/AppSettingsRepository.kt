@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val Context.dataStore by preferencesDataStore(name = "plain_notes_settings")
 
@@ -22,25 +23,25 @@ class AppSettingsRepository(private val context: Context) {
 
     val rootFolderUri: Flow<Uri?> = context.dataStore.data.map { preferences ->
         preferences[rootFolderKey]?.let(Uri::parse)
-    }
+    }.distinctUntilChanged()
 
     val themeMode: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[themeModeKey] ?: "dark_1"
-    }
+    }.distinctUntilChanged()
 
     val fontScale: Flow<Float> = context.dataStore.data.map { preferences ->
         preferences[fontScaleKey]?.toFloatOrNull() ?: 1.0f
-    }
+    }.distinctUntilChanged()
 
     val noteSortMode: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[noteSortModeKey] ?: "modified"
-    }
+    }.distinctUntilChanged()
 
-    val doubleXEnabled: Flow<Boolean> = context.dataStore.data.map { it[doubleXEnabledKey] ?: false }
-    val showReader: Flow<Boolean> = context.dataStore.data.map { it[showReaderKey] ?: false }
+    val doubleXEnabled: Flow<Boolean> = context.dataStore.data.map { it[doubleXEnabledKey] ?: false }.distinctUntilChanged()
+    val showReader: Flow<Boolean> = context.dataStore.data.map { it[showReaderKey] ?: false }.distinctUntilChanged()
     val bookFolders: Flow<List<Uri>> = context.dataStore.data.map { prefs ->
         prefs[bookFoldersKey]?.split('\n')?.filter(String::isNotBlank)?.map(Uri::parse).orEmpty()
-    }
+    }.distinctUntilChanged()
 
     suspend fun setDoubleXEnabled(enabled: Boolean) { context.dataStore.edit { it[doubleXEnabledKey] = enabled } }
     suspend fun setShowReader(enabled: Boolean) { context.dataStore.edit { it[showReaderKey] = enabled } }

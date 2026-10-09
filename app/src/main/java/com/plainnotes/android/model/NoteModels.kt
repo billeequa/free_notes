@@ -11,7 +11,6 @@ data class NoteDocument(
     val documentUri: Uri,
     val filename: String,
     val title: String,
-    val body: String,
     val createdAt: OffsetDateTime,
     val modifiedAt: OffsetDateTime,
     val isTrashed: Boolean,
@@ -26,11 +25,7 @@ data class NoteDocument(
     val displayTitle: String
         get() = title.ifBlank { "Untitled" }
 
-    val bodyPreview: String
-        get() = body
-            .replace(Regex("\\s+"), " ")
-            .trim()
-            .take(180)
+
 }
 
 data class EditableNote(
@@ -51,7 +46,6 @@ data class EditableNote(
         documentUri = documentUri,
         filename = filename,
         title = title,
-        body = body,
         createdAt = createdAt,
         modifiedAt = modifiedAt,
         isTrashed = isTrashed,
