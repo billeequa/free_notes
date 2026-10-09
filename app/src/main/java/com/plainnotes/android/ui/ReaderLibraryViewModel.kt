@@ -27,13 +27,24 @@ internal class ReaderLibraryViewModel(application: Application) : AndroidViewMod
     private val _state = MutableStateFlow(ReaderLibraryState())
     val state = _state.asStateFlow()
     private var job: Job? = null
+    private var loadedFolders: List<Uri>? = null
+    private var reloadRequested = false
 
+    @Synchronized
     fun load(force: Boolean = false) {
-        if (job?.isActive == true || (!force && _state.value.loaded)) return
+        if (job?.isActive == true) {
+            reloadRequested = reloadRequested || force
+            return
+        }
         job = viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(loading = !it.loaded) }
             try {
+                val folders = library.folders()
+                // Settings can change folders while this tab is disposed. Checking the cached
+                // preference is cheap; unchanged tab entries never rescan EPUB directories.
+                if (!force && _state.value.loaded && folders == loadedFolders) return@launch
+                _state.update { it.copy(loading = !it.loaded) }
                 val books = library.scan()
+                loadedFolders = folders
                 _state.update { it.copy(books = books, loaded = true, error = null) }
             } catch (error: CancellationException) {
                 throw error
@@ -41,6 +52,13 @@ internal class ReaderLibraryViewModel(application: Application) : AndroidViewMod
                 _state.update { it.copy(error = error.message ?: "Cannot refresh books.") }
             } finally {
                 _state.update { it.copy(loading = false) }
+                synchronized(this@ReaderLibraryViewModel) {
+                    job = null
+                    if (reloadRequested) {
+                        reloadRequested = false
+                        load(force = true)
+                    }
+                }
             }
         }
     }

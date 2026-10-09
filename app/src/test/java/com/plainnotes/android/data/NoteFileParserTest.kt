@@ -108,4 +108,19 @@ class NoteFileParserTest {
         assertEquals("Some hand-written file", parsed.title)
         assertTrue(parsed.body.contains("https://example.com"))
     }
+    @Test fun `header scanning preserves whitespace trailing newlines and metadata-like body text`() {
+        val bodies = listOf("", "\n", "\n\n", "  indented\n\nlast\n", "Title: body text\nCreated: body text", "漢字 🚨\n\t\n")
+        val now = OffsetDateTime.parse("2026-10-08T12:00:00Z")
+        for (body in bodies) {
+            val raw = NoteFileParser.serialize(NoteTextContent("", now, now, body))
+            assertEquals(body, NoteFileParser.parse(raw, "note.txt", 0L, now).body)
+            assertEquals(body, NoteFileParser.parse(raw.replace("\n", "\r\n"), "note.txt", 0L, now).body)
+        }
+        val malformed = "Title: explicit\nUnexpected header\n\nKeep all of this\n"
+        val parsed = NoteFileParser.parse(malformed, "note.txt", 0L, now)
+        assertEquals("explicit", parsed.title)
+        assertEquals(malformed, parsed.body)
+        assertEquals("", NoteFileParser.parse("Title: explicit", "note.txt", 0L, now).body)
+    }
+
 }

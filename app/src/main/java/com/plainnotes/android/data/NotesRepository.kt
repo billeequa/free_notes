@@ -167,7 +167,7 @@ class NotesRepository(private val context: Context) {
         storageMutex.withLock {
             val root = requireRootDirectory()
             indexFor(root.uri)
-            val now = now()
+            val now = now().withNano(0)
             val fileName = uniqueFileName(
                 directory = root,
                 preferredName = "${fileStampFormatter.format(now)}-${slugify("")}.txt",
@@ -199,7 +199,7 @@ class NotesRepository(private val context: Context) {
     }
 
     private fun createJournalFile(root: DocumentFile, date: LocalDate, notes: List<NoteDocument>): EditableNote {
-        val now = now()
+        val now = now().withNano(0)
         val title = JournalEntries.nextTitle(date, notes.map { it.title })
         val filename = uniqueFileName(root, "${fileStampFormatter.format(now)}-${slugify(title)}.txt")
         val file = root.createFile(TEXT_MIME_TYPE, filename) ?: throw IOException("Unable to create journal entry.")
@@ -498,8 +498,8 @@ class NotesRepository(private val context: Context) {
     }
 
     private fun editableFromContent(uri: Uri, filename: String, content: NoteTextContent, trashed: Boolean) =
-        EditableNote(uri, filename, content.title, content.body, content.createdAt.withNano(0),
-            content.modifiedAt.withNano(0), trashed, content.noteType, content.doubleXDate,
+        EditableNote(uri, filename, content.title, content.body, content.createdAt,
+            content.modifiedAt, trashed, content.noteType, content.doubleXDate,
             content.category, content.journalDate, content.doubleXTemplateVersion)
 
     private fun readText(uri: Uri): String? = runCatching {

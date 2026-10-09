@@ -110,6 +110,18 @@ class NotesRepositoryIndexTest {
         assertTrue(file.readText().contains("Recovered text"))
     }
 
+    @Test fun legacyFractionalTimestampsStayIdenticalInTheIndexAndEditor() = runBlocking {
+        val raw = "Title: Legacy\nCreated: 2026-10-08T12:00:00.123Z\nModified: 2026-10-08T13:00:00.456Z\n\nUntouched text"
+        val file = File(provider.root, "legacy.txt").apply { writeText(raw) }
+        val repository = NotesRepository(context)
+        val summary = repository.listActiveNotes().single()
+        val editable = repository.loadEditableNote(summary.id)!!
+        assertEquals(123000000, summary.createdAt.nano)
+        assertEquals(456000000, summary.modifiedAt.nano)
+        assertEquals(summary.createdAt, editable.createdAt)
+        assertEquals(raw, file.readText())
+    }
+
     @Test fun failedDirectoryQueryRetainsCachedNotes() = runBlocking {
         add("first.txt")
         val repository = NotesRepository(context)

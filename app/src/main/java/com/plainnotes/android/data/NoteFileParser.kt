@@ -24,9 +24,10 @@ object NoteFileParser {
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
     private val legacyFormatter: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
-    internal fun isMetadataLine(line: String): Boolean = listOf(titlePrefix, createdPrefix, modifiedPrefix,
+    private val metadataPrefixes = listOf(titlePrefix, createdPrefix, modifiedPrefix,
         typePrefix, doubleXDatePrefix, categoryPrefix, journalDatePrefix, doubleXTemplatePrefix)
-        .any { line.startsWith(it, ignoreCase = true) }
+
+    internal fun isMetadataLine(line: String): Boolean = metadataPrefixes.any { line.startsWith(it, ignoreCase = true) }
 
     fun serialize(content: NoteTextContent): String = buildString {
         append(titlePrefix)

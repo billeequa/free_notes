@@ -84,6 +84,9 @@ fun TodoScreen(
     }
     val listState = rememberLazyListState()
     val openHeights = remember { mutableStateMapOf<String, Int>() }
+    val openHeightPx by remember(open) {
+        derivedStateOf { open.sumOf { openHeights[it.id] ?: 0 } }
+    }
     var revealedId by remember { mutableStateOf<String?>(null) }
     var checkboxConfirmId by remember { mutableStateOf<String?>(null) }
     var positioned by rememberSaveable { mutableStateOf(false) }
@@ -133,7 +136,7 @@ fun TodoScreen(
             }
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val viewportHeight = maxHeight
-            val knownOpenHeight = with(LocalDensity.current) { open.sumOf { openHeights[it.id] ?: 0 }.toDp() }
+            val knownOpenHeight = with(LocalDensity.current) { openHeightPx.toDp() }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().pointerInput(onNotes) {
