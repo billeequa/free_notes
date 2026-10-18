@@ -11,8 +11,8 @@ android {
         applicationId = "com.plainnotes.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 22
-        versionName = "1.4.10"
+        versionCode = 23
+        versionName = "1.5.0-dev"
         val updateRepository = providers.gradleProperty("updateRepository").orElse("billeequa/free_notes").get()
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(updateRepository))
         buildConfigField("String", "UPDATE_REPOSITORY", "\"$updateRepository\"")
@@ -54,6 +54,8 @@ android {
         buildConfig = true
     }
 
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("protocol"))
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
@@ -66,6 +68,8 @@ android {
 }
 
 dependencies {
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
     implementation(platform(libs.androidx.compose.bom))
 
     implementation(libs.androidx.core.ktx)

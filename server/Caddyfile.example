@@ -1,0 +1,4 @@
+# Replace notes.example.com with your actual domain.
+notes.example.com {
+    reverse_proxy 127.0.0.1:8080
+}

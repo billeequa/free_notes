@@ -90,6 +90,10 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     val uiState: StateFlow<PlainNotesUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch { com.plainnotes.android.sync.SyncRuntime.localChanges.collect {
+            refreshState()
+            loadTodos(force = true)
+        } }
         viewModelScope.launch {
             repository.noteIndex.collect { snapshot ->
                 if (snapshot != null && snapshot.folderUri == selectedRoot?.toString()) {
@@ -259,17 +263,22 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     suspend fun openEditor(uri: String): NoteEditorSession? {
+        if(com.plainnotes.android.sync.SyncRuntime.enabled(getApplication())) com.plainnotes.android.sync.SyncRuntime.editing.add(uri)
         editorSession?.let { session ->
             if (session.initialNote.documentUri.toString() == uri || session.savedNote.documentUri.toString() == uri) return session
         }
         return loadNote(uri)?.let { NoteEditorSession(it).also { session -> editorSession = session } }
     }
 
-    fun closeEditor() { editorSession = null }
+    fun closeEditor() {
+        editorSession?.let { com.plainnotes.android.sync.SyncRuntime.editing.remove(it.savedNote.documentUri.toString()); com.plainnotes.android.sync.SyncRuntime.editing.remove(it.initialNote.documentUri.toString()) }
+        editorSession = null
+    }
 
     suspend fun saveNote(note: EditableNote): EditableNote? {
         return try {
             val saved = repository.saveNote(note)
+            if(com.plainnotes.android.sync.SyncRuntime.editing.remove(note.documentUri.toString())) com.plainnotes.android.sync.SyncRuntime.editing.add(saved.documentUri.toString())
             saved
         } catch (error: CancellationException) {
             throw error
@@ -359,9 +368,12 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             if (!_uiState.value.todosLoaded) return@withLock false
             val root = selectedRoot
             try {
-                val before = _uiState.value.todos
-                val updated = change(before)
-                repository.saveTodos(updated)
+                val (before, updated) = if(com.plainnotes.android.sync.SyncRuntime.enabled(getApplication())) repository.changeTodosWithSync(change) else {
+                    val previous = _uiState.value.todos
+                    val next = change(previous)
+                    repository.saveTodos(next)
+                    previous to next
+                }
                 if (root != selectedRoot) return@withLock false
                 _uiState.update { it.copy(todos = updated, todoError = null) }
                 if (_uiState.value.doubleXEnabled) {

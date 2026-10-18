@@ -68,3 +68,11 @@ Jnotes does not require internet access to create, read, edit, delete, or export
 
 See [device verification](docs/DEVICE_TESTING.md) for the Pixel 4a 5G regression checklist.
 
+
+## Optional encrypted Web Sync (development)
+
+The development implementation adds To-Do, Notes and Journal in the browser, opt-in Android synchronization, client-side encryption, revision history and conflict handling. Sync is off by default; phone files remain readable/editable independently of accounts and servers.
+
+The frontend and backend SQL are both in this repository. [Host it anywhere](server/README.md), follow the [operator/setup guide](docs/web-sync/operator-guide.md), and review [the protocol](docs/web-sync/protocol.md) and [recovery behavior](docs/web-sync/recovery.md). For local browser testing, build and serve the frontend, then visit **http://localhost:8080**. Once hosted, use your actual HTTPS domain in both Android Web Sync setup and your browser. GitHub itself is the source host, not the notebook login page.
+
+This branch is a review checkpoint. Do not migrate personal data or publish a signed update until the security, recovery and populated-device acceptance checks are complete.

@@ -9,3 +9,12 @@ local.properties
 keystore.properties
 build/
 app/build/
+
+# Web / local sync development
+node_modules/
+web/dist/
+.env
+.env.*
+!.env.example
+supabase/.temp/
+server/backups/
