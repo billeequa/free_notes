@@ -11,11 +11,12 @@ android {
         applicationId = "com.plainnotes.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "1.5.1"
+        versionCode = 25
+        versionName = "1.5.2"
         val updateRepository = providers.gradleProperty("updateRepository").orElse("billeequa/free_notes").get()
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(updateRepository))
         buildConfigField("String", "UPDATE_REPOSITORY", "\"$updateRepository\"")
+        buildConfigField("String", "SYNC_DIRECTORY_URL", "\"https://raw.githubusercontent.com/$updateRepository/main/config/jnotes-service.json\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -55,6 +56,7 @@ android {
     }
 
     sourceSets.getByName("test").resources.srcDir(rootProject.file("protocol"))
+    sourceSets.getByName("main").assets.srcDir(rootProject.file("config"))
 
     testOptions {
         unitTests.isIncludeAndroidResources = true

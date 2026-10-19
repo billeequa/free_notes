@@ -2,7 +2,7 @@
 
 ## What address do I open?
 
-After hosting, open the frontend's HTTPS address in any browser. Put that same address in Android Settings → Web Sync during setup; the phone reads its public backend configuration from `/config.json`. Desktop testing can use **http://localhost:8080**. `localhost` always means the computer you are on, so a physical phone needs a reachable HTTPS hostname, not your desktop's localhost address. GitHub stores the source; its repository page is not the notebook login page. No production domain is preconfigured or implied.
+The current website is **https://j4notes.pages.dev**. Normal Android setup discovers its connection automatically: open Settings → Web Sync and use your email and password. The labeled Website link in Settings shows the browser destination; no address entry is required. Read [automatic discovery and hosting moves](connection-discovery.md) before relocating a host. Explicit self-hosted connections remain under Advanced and read that host's `/config.json`. Desktop testing can use **http://localhost:8080**; physical phones require reachable HTTPS. GitHub stores the source and public connection directory, rather than the notebook login page.
 
 ## 1. Development Supabase
 
@@ -61,7 +61,7 @@ Browser Settings → Export encrypted cloud backup exports wrapped vault keys, b
 
 The browser JSON export can be restored into an empty migrated development database with `node server/restore-encrypted-export.mjs archive.json --empty-development-target`, using psql/PG environment variables. Restore the matching confirmed auth user UUID first. The helper refuses non-empty application tables or a different owner, verifies the revision chain, preserves original bootstrap/ciphertext/wrapped keys, changes the cloud epoch and invalidates sessions. A synthetic round-trip is exercised in the SQL suite. Clients must reauthorize and explicitly repair after restore.
 
-Never regenerate the public KDF salt to fix a login issue. Never rename the original auth UUID without unlocking and re-encrypting through a reviewed client migration; UUID/deployment are authenticated in AAD. Moving an intact database to Linux/self-hosting must retain those values; update the frontend public configuration and reconnect the phone to the new address after backup.
+Never regenerate the public KDF salt to fix a login issue. Never rename the original auth UUID without unlocking and re-encrypting through a reviewed client migration; UUID/deployment are authenticated in AAD. Moving an intact database to Linux/self-hosting must retain those values. Update the public service directory and website configuration after a verified migration. A changed backend origin requires reconnecting with email/password; the phone discovers the address automatically and preserves its pending edits. See the [migration procedure](connection-discovery.md).
 
 ## 7. Before sensitive-data rollout
 

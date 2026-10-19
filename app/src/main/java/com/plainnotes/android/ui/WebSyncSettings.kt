@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.plainnotes.android.data.NotesRepository
@@ -17,6 +18,27 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+@Composable
+fun WebsiteSettings() {
+    val context = LocalContext.current
+    val prefs = remember { SyncRuntime.prefs(context) }
+    val uriHandler = LocalUriHandler.current
+    var website by remember { mutableStateOf(SyncConnection.website(context)) }
+    var error by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> website = SyncConnection.website(context) }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    Text("Website", style = MaterialTheme.typography.titleMedium)
+    TextButton(onClick = {
+        error = null
+        try { uriHandler.openUri(website) }
+        catch(_: IllegalArgumentException) { error = "No browser is available. Open the address above on another device." }
+    }) { Text(website) }
+    error?.let { Text(it,style=MaterialTheme.typography.bodySmall) }
+}
+
 /** Dormant unless opened. KDF/network/preview never run during normal app startup. */
 @Composable
 fun WebSyncSettings() {
@@ -26,7 +48,8 @@ fun WebSyncSettings() {
     var expanded by remember {mutableStateOf(false)}
     var enabled by remember {mutableStateOf(SyncRuntime.enabled(context))}
     var status by remember {mutableStateOf(prefs.getString("status","Saved on phone — sync disabled")!!)}
-    var web by remember {mutableStateOf(prefs.getString("web","")!!)}
+    var useCustom by remember {mutableStateOf(SyncConnection.customWebsite(context)!=null)}
+    var customWeb by remember {mutableStateOf(SyncConnection.customWebsite(context).orEmpty())}
     var email by remember {mutableStateOf(prefs.getString("email","")!!)}
     var password by remember {mutableStateOf("")}
     var otp by remember {mutableStateOf("")}
@@ -60,7 +83,6 @@ fun WebSyncSettings() {
             if(enabled) {
                 Text(email)
                 Text("Pending: $counts · Last sync: "+prefs.getLong("last_sync",0).let {if(it==0L)"Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))})
-                if(web.isNotBlank())SelectionContainer{Text("Browser address: $web")}
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     Button(onClick={SyncRuntime.schedule(context)},enabled=!busy){Text("Sync now")}
                     OutlinedButton(onClick={SyncRuntime.disable(context);enabled=false},enabled=!busy){Text("Disable sync")}
@@ -77,15 +99,20 @@ fun WebSyncSettings() {
                     OutlinedButton(onClick={comparison=conflict}){Text("Resolve: "+conflict.getJSONObject("local").optString("title","Untitled"))}
                 }
             } else if(setup==null) {
-                OutlinedTextField(web,{web=it},label={Text("Web app address (HTTPS)")},modifier=Modifier.fillMaxWidth(),singleLine=true)
-                OutlinedTextField(email,{email=it},label={Text("Approved email")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                Text("JNotes connects automatically. Use your email and password.",style=MaterialTheme.typography.bodySmall)
+                OutlinedTextField(email,{email=it},enabled=!busy&&api==null,label={Text("Email")},modifier=Modifier.fillMaxWidth(),singleLine=true)
                 OutlinedTextField(password,{password=it},label={Text("Password (12+ characters)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth(),singleLine=true)
-                Button(enabled=!busy&&web.isNotBlank()&&email.isNotBlank(),onClick={run{api=withContext(Dispatchers.IO){SyncRuntime.begin(web,email)}}}){Text("Send email verification code")}
+                if(api==null) {
+                    TextButton(enabled=!busy,onClick={useCustom=!useCustom}) {Text(if(useCustom) "Use JNotes connection" else "Advanced: self-hosted connection")}
+                    if(useCustom) OutlinedTextField(customWeb,{customWeb=it},label={Text("Self-hosted website (HTTPS)")},modifier=Modifier.fillMaxWidth(),singleLine=true,enabled=!busy)
+                }
+                Button(enabled=!busy&&email.isNotBlank()&&(!useCustom||customWeb.isNotBlank()),onClick={run{api=withContext(Dispatchers.IO){SyncRuntime.begin(context,email,if(useCustom)customWeb else null)}}}){Text("Send email verification code")}
                 if(api!=null) {
+                    TextButton(enabled=!busy,onClick={api=null;otp=""}){Text("Change email or connection")}
                     OutlinedTextField(otp,{otp=it},label={Text("Email verification code")},modifier=Modifier.fillMaxWidth(),singleLine=true)
                     OutlinedTextField(recoveryInput,{recoveryInput=it},label={Text("Recovery code (only if recovering)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
                     Button(enabled=!busy&&password.length>=12&&otp.isNotBlank(),onClick={run{
-                        val prepared=withContext(Dispatchers.IO){SyncRuntime.verify(context,api!!,email,otp,password,recoveryInput)}
+                        val prepared=withContext(Dispatchers.IO){SyncRuntime.verify(context,api!!,email.trim(),otp.trim(),password,recoveryInput)}
                         setup=prepared;password="";otp="";recoveryInput=""
                         preview=withContext(Dispatchers.IO){
                             val repo=NotesRepository(context);val docs=repo.listActiveNotes();val trash=repo.listTrashedNotes();val tasks=repo.loadTodos()
@@ -109,7 +136,7 @@ fun WebSyncSettings() {
                     Text("I approve the complete encrypted upload/merge after the local backup.",modifier=Modifier.padding(top=12.dp))
                 }
                 Button(enabled=!busy&&approved&&(prepared.recoveryCode==null||confirmation==prepared.recoveryCode!!.takeLast(8)),onClick={run{
-                    withContext(Dispatchers.IO){SyncRuntime.enable(context,prepared,web,email)}
+                    withContext(Dispatchers.IO){SyncRuntime.enable(context,prepared,email)}
                     setup=null;enabled=true;confirmation="";approved=false
                 }}){Text("Back up phone and enable sync")}
                 TextButton(onClick={prepared.key.fill(0);prepared.recoveryCode=null;setup=null;approved=false;confirmation=""},enabled=!busy){Text("Cancel setup")}

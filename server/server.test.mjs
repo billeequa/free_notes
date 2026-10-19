@@ -10,6 +10,21 @@ const env = {
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
   WEB_URL: "https://notes.example.test",
 };
+test("the shipped mobile directory contains only valid public connection information", async () => {
+  const service = JSON.parse(await readFile(new URL("../config/jnotes-service.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(service).sort(), ["deployment_id","protocol_version","publishable_key","revision","schema_version","supabase_url","web_url"].sort());
+  assert.equal(service.schema_version, 1);
+  assert.equal(service.protocol_version, 1);
+  assert.ok(Number.isSafeInteger(service.revision) && service.revision > 0);
+  assert.match(service.deployment_id, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+  const config = publicConfig({SUPABASE_URL:service.supabase_url,SUPABASE_PUBLISHABLE_KEY:service.publishable_key,WEB_URL:service.web_url});
+  assert.equal(config.supabase_url, service.supabase_url);
+  for (const value of [service.web_url,service.supabase_url]) {
+    const url = new URL(value);
+    assert.equal(url.protocol, "https:");
+    assert.equal(url.origin, value);
+  }
+});
 test("host exposes only public config and rejects service-role/admin credentials", () => {
   assert.equal(publicConfig(env).web_url, env.WEB_URL);
   for (const key of [

@@ -1,8 +1,8 @@
 # Put JNotes on a live website
 
-Use Cloudflare Pages for the website and Supabase for login and the encrypted database. You do not need to buy a domain or rent a Linux server to start. Pages provides an HTTPS address such as `https://YOUR-PROJECT.pages.dev`; that is the address you open in a browser and enter in Android Settings → Web Sync. These example addresses are placeholders, not an existing deployment.
+Use Cloudflare Pages for the website and Supabase for login and the encrypted database. The current website is **https://j4notes.pages.dev**. Android discovers its service connection automatically; users do not type this address during setup. You do not need to buy a domain or rent a Linux server to start. Other `YOUR-PROJECT` addresses below are placeholders for self-hosting.
 
-The source is in `feat/encrypted-web-sync-v1` ([PR #20](https://github.com/billeequa/free_notes/pull/20)). Keep this first deployment for synthetic testing until the review and acceptance checks in [the operator guide](operator-guide.md) are complete. GitHub hosts the source, not the notebook login page. Supabase's `*.supabase.co` address is the API endpoint, not the website.
+The source is on `main`. GitHub also hosts the public mobile service directory. Supabase's `*.supabase.co` address is the API endpoint, not the website. Follow the review and acceptance checks in [the operator guide](operator-guide.md).
 
 ## 1. Prepare Supabase
 
@@ -20,7 +20,7 @@ From Supabase's project Connect/API settings, copy the project URL and its **pub
 | Setting | Value |
 | --- | --- |
 | Project name | Any available name, for example `my-jnotes` |
-| Production branch for this development site | `feat/encrypted-web-sync-v1` |
+| Production branch | `main` |
 | Framework preset | None |
 | Root directory | Leave blank (repository root) |
 | Build command | `npm --prefix web ci && npm --prefix web run build:pages` |
@@ -32,7 +32,7 @@ From Supabase's project Connect/API settings, copy the project URL and its **pub
 5. Save and deploy. Pages installs the pinned dependencies and builds the website. The build writes `/config.json` and `_headers`; no hand-written config file is needed. It refuses privileged keys. Set the same public environment variables for Preview deployments if you enable them.
 6. Open the actual HTTPS address shown after deployment, for example `https://my-jnotes.pages.dev`. Keep that exact address. In Supabase Auth → URL Configuration, use it as the Site URL and allow the exact URLs needed by your invite/recovery flow. Complete the approved account and synthetic end-to-end tests before enabling personal-note upload.
 
-Once this PR is reviewed and merged, change the Pages production branch to `main`. GitHub pushes to the selected branch rebuild the site automatically. Do not use a development branch as an unreviewed production release channel.
+Use `main` as the Pages production branch. GitHub pushes to the selected branch rebuild the site automatically.
 
 ## 3. Optional: buy your own address
 
@@ -48,13 +48,13 @@ For a subdomain such as `notes.YOUR-DOMAIN.com`:
 | CNAME | `notes` | `YOUR-PROJECT.pages.dev` |
 
 3. Wait until the domain and HTTPS certificate show active, then open `https://notes.YOUR-DOMAIN.com`.
-4. Update the exact allowed Site URL/redirect settings in Supabase. Use this new web address when reconnecting Android; preserve the existing backend/vault and back up before reconnecting.
+4. Update the exact allowed Site URL/redirect settings in Supabase, the website's public configuration, and `web_url` in `config/jnotes-service.json` with an increased revision. Phones discover the new website without address entry; preserve the existing backend/vault. See [hosting moves](connection-discovery.md).
 
 Add the custom domain in Pages **before** adding a CNAME. For a bare domain such as `YOUR-DOMAIN.com`, Cloudflare requires its nameservers; a subdomain can use DNS at another registrar. A Supabase custom domain add-on is unnecessary for giving this app its own web address.
 
 ## 4. Use JNotes
 
-On Android, install the reviewed update signed with your existing app certificate. Open Settings → Web Sync and enter the actual Pages/custom-domain address. Verify the approved email, establish the password, save the recovery code, review the upload preview, and confirm only after the review checkpoint.
+On Android, install the update signed with your existing app certificate. Open Settings → Web Sync, enter your email and password, verify the email, save the recovery code, and review and confirm the upload preview. JNotes discovers its website and backend automatically. Self-hosting operators can use Advanced to choose their own host.
 
 In any browser, open that same website and sign in with the same email and password. To-Do, Notes and Journal appear there. Wait for **Synced** after edits; keep a tab open and use Retry/Copy/Download if a save fails. Browser access requires internet. Android local editing continues when offline or sync is disabled.
 

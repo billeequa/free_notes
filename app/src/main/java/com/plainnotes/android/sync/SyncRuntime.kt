@@ -93,24 +93,25 @@ object SyncRuntime {
         }
         // Keep a wrapped credential for safe re-enable; no unwrapped key survives a worker.
     }
-    fun configFromWeb(web: String): JSONObject {
-        val u=java.net.URL(web.trimEnd('/')+"/config.json")
-        require(u.protocol=="https" || u.host in listOf("localhost","127.0.0.1","10.0.2.2")) {"Use an HTTPS web address"}
-        val c=u.openConnection() as java.net.HttpURLConnection
-        c.connectTimeout=15000;c.readTimeout=15000;c.instanceFollowRedirects=false
-        try {require(c.responseCode==200){"Web configuration unavailable"};return JSONObject(c.inputStream.bufferedReader().use {it.readText()}.also {require(it.length<8192)})}finally{c.disconnect()}
-    }
+    private fun linkedDeployment(c: Context) = if(c.getDatabasePath("web-sync.db").exists()) store(c).meta("deployment") else ""
     data class Setup(val api: SyncApi,val bootstrap: JSONObject,val owner: String,val keyId: String,val key: ByteArray,val vault: JSONObject,var recoveryCode: String?)
-    fun begin(web: String,email: String): SyncApi {
-        val config=configFromWeb(web)
-        return SyncApi(config.getString("supabase_url"),config.getString("publishable_key")).also {it.sendCode(email)}
+    fun begin(c: Context,email: String,customWeb: String? = SyncConnection.customWebsite(c)): SyncApi {
+        val prepared=SyncConnection.prepare(c,linkedDeployment(c),customWeb)
+        return prepared.api.also {it.sendCode(email.trim())}
     }
     fun verify(c: Context,api: SyncApi,email: String,otp: String,password: String,recoveryInput: String = ""): Setup {
         require(password.length>=12){"Use at least 12 characters"}
-        val b=api.bootstrap();val credentials=SyncCrypto.derive(password,b)
+        val b=api.bootstrap()
+        val expected=linkedDeployment(c)
+        if(b.getString("deployment_id")!=api.connection!!.deployment || expected.isNotEmpty() && expected!=b.getString("deployment_id"))throw SyncConnection.ConfigurationChanged()
+        val credentials=SyncCrypto.derive(password,b)
         try {
             val session=api.verifyCode(email,otp);val owner=session.getJSONObject("user").getString("id")
             val state=api.vault();val prior=state.optJSONObject("vault")
+            if(expected.isNotEmpty()) {
+                val previous=store(c)
+                if(owner!=previous.meta("owner") || prior?.optString("key_id")!=previous.meta("key_id"))throw SyncApi.CloudChanged()
+            }
             val keyId=prior?.getString("key_id") ?: UUID.randomUUID().toString()
             val key: ByteArray
             var recovery: String?=null
@@ -150,7 +151,7 @@ object SyncRuntime {
             return Setup(api,b,owner,keyId,key,api.vault(),recovery)
         }finally{credentials.wrap.fill(0)}
     }
-    suspend fun enable(c: Context,setup: Setup,web: String,email: String) {
+    suspend fun enable(c: Context,setup: Setup,email: String) {
         val s=store(c)
         val rootUri=NotesRepository(c).rootFolderUri().first()?.toString() ?: error("Choose a notes folder first")
         require(s.meta("root_uri").isEmpty() || s.meta("root_uri")==rootUri){"The previously linked notes folder differs. Relink that folder or use a separately reviewed new-vault reset. Local files are unchanged."}
@@ -163,13 +164,14 @@ object SyncRuntime {
             setup.api.rpc("rotate_recovery",JSONObject().put("p_envelope",e))
         }
         val state=setup.vault
-        val secrets=JSONObject().put("session",setup.api.session).put("key",SyncCrypto.b64(setup.key)).put("owner",setup.owner).put("key_id",setup.keyId)
+        val secrets=JSONObject().put("session",setup.api.session).put("api_origin",setup.api.url).put("key",SyncCrypto.b64(setup.key)).put("owner",setup.owner).put("key_id",setup.keyId)
         SyncSecrets(c).save(secrets)
         s.setMeta("root_uri",rootUri)
         s.setMeta("owner",setup.owner);s.setMeta("deployment",setup.bootstrap.getString("deployment_id"));s.setMeta("key_id",setup.keyId)
         if(s.meta("epoch").isEmpty())s.setMeta("epoch",state.getString("epoch"))
         if(s.meta("device").isEmpty())s.setMeta("device",UUID.randomUUID().toString())
-        prefs(c).edit().putString("url",setup.api.url).putString("public_key",setup.api.publicKey).putString("web",web).putString("email",email)
+        SyncConnection.saveActive(c,setup.api.connection!!)
+        prefs(c).edit().putString("email",email.trim())
             .putString("backup",backup).putBoolean("enabled",true).putString("status","Saved on phone — pending initial upload").commit()
         setup.key.fill(0);setup.recoveryCode=null
         // Snapshot and outbox construction occur off the UI thread, after verified backup and consent.
@@ -183,11 +185,14 @@ object SyncRuntime {
         val backup=repo.backupForSync()
         val secret=SyncSecrets(c).read();val key=SyncCrypto.unb64(secret.getString("key"))
         try {
-            val api=SyncApi(prefs.getString("url","")!!,prefs.getString("public_key","")!!,secret.getJSONObject("session"))
-            api.refresh();secret.put("session",api.session);SyncSecrets(c).save(secret)
+            val connection=SyncConnection.prepareSession(c,secret,s.meta("deployment"))
+            val api=connection.api
+            api.refresh();require(api.session!!.getJSONObject("user").getString("id")==s.meta("owner")){"Cloud account differs"}
+            secret.put("session",api.session).put("api_origin",api.url);SyncSecrets(c).save(secret)
             val state=api.vault();val vault=state.optJSONObject("vault") ?: error("Cloud vault missing. Re-provisioning requires a new reviewed link.")
-            val b=api.bootstrap()
+            val b=connection.bootstrap
             require(b.getString("deployment_id")==s.meta("deployment") && vault.getString("key_id")==s.meta("key_id")){"Cloud identity/key differs; no phone files or sync metadata changed."}
+            SyncConnection.saveActive(c,connection.service)
             val epoch=state.getString("epoch");val high=state.getLong("high_water")
             val remote=linkedMapOf<String,JSONObject>();var cursor=0L
             while(cursor<high) {

@@ -7,13 +7,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** Only public API key and derived authentication credential leave the client. */
-class SyncApi(val url: String, val publicKey: String, var session: JSONObject? = null) {
-    init { val u=URL(url);require(u.protocol=="https" || u.host in listOf("localhost","127.0.0.1","10.0.2.2"));require(!publicKey.startsWith("sb_secret_"))
-        if(!publicKey.startsWith("sb_publishable_")) {
-            val claims=JSONObject(String(java.util.Base64.getUrlDecoder().decode(publicKey.split('.')[1]),Charsets.UTF_8))
-            require(claims.getString("role")=="anon"){"Use a public API key, never an admin key"}
-        }
-    }
+class SyncApi(url: String, val publicKey: String, var session: JSONObject? = null, val connection: SyncConnection.Service? = null) {
+    val url = SyncConnection.origin(url)
+    init { SyncConnection.checkPublicKey(publicKey) }
     fun request(path: String, body: JSONObject? = null, method: String = if(body==null)"GET" else "POST", authorized: Boolean = true): String {
         val c=URL(url.trimEnd('/')+path).openConnection() as HttpURLConnection
         c.connectTimeout=15000;c.readTimeout=20000;c.instanceFollowRedirects=false;c.requestMethod=method

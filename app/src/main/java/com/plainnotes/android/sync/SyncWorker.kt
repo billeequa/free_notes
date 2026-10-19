@@ -20,11 +20,14 @@ class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(co
                 val c=applicationContext;val prefs=SyncRuntime.prefs(c);val store=SyncRuntime.store(c)
                 val secret=runCatching {SyncSecrets(c).read()}.getOrElse {throw SyncApi.AuthRequired()}
                 key=SyncCrypto.unb64(secret.getString("key"))
-                val api=SyncApi(prefs.getString("url","")!!,prefs.getString("public_key","")!!,secret.getJSONObject("session"))
-                api.refresh();secret.put("session",api.session);SyncSecrets(c).save(secret)
-                val b=api.bootstrap();val state=api.vault();val vault=state.optJSONObject("vault") ?: throw SyncApi.CloudChanged()
+                val connection=SyncConnection.prepareSession(c,secret,store.meta("deployment"))
+                val api=connection.api
+                api.refresh();require(api.session!!.getJSONObject("user").getString("id")==store.meta("owner")){"Cloud account differs"}
+                secret.put("session",api.session).put("api_origin",api.url);SyncSecrets(c).save(secret)
+                val b=connection.bootstrap;val state=api.vault();val vault=state.optJSONObject("vault") ?: throw SyncApi.CloudChanged()
                 if(b.getString("deployment_id")!=store.meta("deployment") || state.getString("epoch")!=store.meta("epoch") ||
                     vault.getString("key_id")!=store.meta("key_id") || state.getLong("high_water")<store.meta("floor","0").toLong())throw SyncApi.CloudChanged()
+                SyncConnection.saveActive(c,connection.service)
                 val repo=NotesRepository(c)
                 require(repo.rootFolderUri().first()?.toString()==store.meta("root_uri")){"Notes folder differs; relink before syncing"}
                 repo.recoverSyncApplies(store);val reconciled=repo.reconcileForSync(store)
@@ -89,6 +92,8 @@ class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(co
                 if(store.hasPending()||!reconciled)SyncRuntime.schedule(c,continuation=true)
                 Result.success()
             }catch(e:CancellationException){throw e}
+            catch(e:SyncConnection.ReconnectRequired){SyncRuntime.status(applicationContext,e.message!!);Result.failure()}
+            catch(e:SyncConnection.ConfigurationChanged){SyncRuntime.status(applicationContext,e.message!!);Result.failure()}
             catch(e:SyncApi.CloudChanged){SyncRuntime.status(applicationContext,e.message!!);Result.failure()}
             catch(e:SyncApi.AuthRequired){SyncRuntime.status(applicationContext,e.message!!);Result.failure()}
             catch(e:javax.crypto.AEADBadTagException){SyncRuntime.status(applicationContext,"Damaged cloud ciphertext — repair required. Phone files preserved.");Result.failure()}

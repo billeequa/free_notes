@@ -1,3 +1,7 @@
+# 1.5.2
+
+Discover the JNotes service automatically; normal setup asks only for email/password. Refresh the versioned public directory before enabled sync, retain legacy/custom connections, and follow website/key updates. Backend-origin changes require a fresh login without forwarding old sessions or resetting pending edits and cloud-rollback protection. Keep the labeled website link in sync with discovered configuration.
+
 # 1.5.1
 
 Show the clickable website address, https://j4notes.pages.dev, directly in phone Settings above Web Sync.

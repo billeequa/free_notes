@@ -2,7 +2,7 @@
 
 Jnotes is a small, ad-free Android notes app built around ordinary UTF-8 text files. Local use needs no account or cloud service. The user chooses a folder, and that folder remains the source of truth. Optional encrypted Web Sync is in development; analytics and advertising SDKs are not included.
 
-The current release is **1.5.1**, adding a clickable website address in Settings alongside optional encrypted Web Sync. See [release notes](releases/NOTES.md) and [update/signing setup](docs/UPDATES.md).
+The current release is **1.5.2**, adding automatic Web Sync connection discovery and safe hosting-move handling. No website address is needed during normal phone setup. See [release notes](releases/NOTES.md), [hosting moves](docs/web-sync/connection-discovery.md), and [update/signing setup](docs/UPDATES.md).
 
 ## Features
 
