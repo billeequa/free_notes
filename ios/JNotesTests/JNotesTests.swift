@@ -1,4 +1,5 @@
 import XCTest
+import ZIPFoundation
 @testable import JNotes
 
 final class JNotesTests: XCTestCase {
@@ -152,6 +153,29 @@ final class JNotesTests: XCTestCase {
         XCTAssertNoThrow(try service.validated())
         let bad = ServiceDirectory(schema_version: 1, revision: 1, protocol_version: 1, deployment_id: service.deployment_id, web_url: service.web_url, supabase_url: "http://example.org", publishable_key: "sb_secret_never_ship")
         XCTAssertThrowsError(try bad.validated())
+    }
+    func testEpubContainerSpineMetadataAndCache() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source"), cache = root.appendingPathComponent("cache")
+        let files = [
+            "mimetype": "application/epub+zip",
+            "META-INF/container.xml": "<container><rootfiles><rootfile full-path=\"EPUB/content.opf\"/></rootfiles></container>",
+            "EPUB/content.opf": "<package xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><metadata><dc:title>Test λ Book</dc:title><dc:creator>Author</dc:creator></metadata><manifest><item id=\"one\" href=\"ch1.xhtml\" media-type=\"application/xhtml+xml\"/><item id=\"two\" href=\"ch2.xhtml\" media-type=\"application/xhtml+xml\"/></manifest><spine><itemref idref=\"one\"/><itemref idref=\"two\"/></spine></package>",
+            "EPUB/ch1.xhtml": "<html><head><title>One</title></head><body>First chapter</body></html>",
+            "EPUB/ch2.xhtml": "<html><head><title>Two</title></head><body>Second chapter</body></html>"
+        ]
+        for (path, text) in files {
+            let url = source.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        let file = root.appendingPathComponent("sample.epub"), archive = try Archive(url: file, accessMode: .create)
+        for path in files.keys.sorted() { try archive.addEntry(with: path, relativeTo: source) }
+        let book = try EPUB.open(file, cache: cache)
+        XCTAssertEqual(book.title, "Test λ Book"); XCTAssertEqual(book.author, "Author"); XCTAssertEqual(book.chapters.count, 2)
+        XCTAssertEqual(book.chapters[0].lastPathComponent, "ch1.xhtml")
+        XCTAssertEqual(try EPUB.open(file, cache: cache).chapters.count, 2)
     }
     func testEpubRejectsTraversal() {
         let root = URL(fileURLWithPath: "/tmp/book")

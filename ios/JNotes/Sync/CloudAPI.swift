@@ -9,7 +9,7 @@ struct ServiceDirectory: Codable, Equatable {
     }
     func validated() throws -> Self {
         guard schema_version == 1, protocol_version == 1, revision > 0, UUID(uuidString: deployment_id) != nil,
-              publishable_key.hasPrefix("sb_publishable_"), !publishable_key.contains(where: { $0.isWhitespace }) else { throw JNotesError("Invalid service configuration") }
+              publishable_key.hasPrefix("sb_publishable_"), publishable_key.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 95 || $0 == 45 }) else { throw JNotesError("Invalid service configuration") }
         for address in [web_url, supabase_url] {
             guard let u = URLComponents(string: address), u.scheme == "https", u.host != nil, u.user == nil, u.password == nil, u.query == nil, u.fragment == nil, u.path.isEmpty || u.path == "/" else { throw JNotesError("Invalid service address") }
         }
@@ -56,7 +56,7 @@ final class CloudAPI {
     func rpc<T: Decodable>(_ name: String, _ args: [String: Any] = [:], as type: T.Type = T.self) async throws -> T { try await request("/rest/v1/rpc/" + name, body: args, as: type) }
     func bootstrap() async throws -> Bootstrap {
         let list: [Bootstrap] = try await request("/rest/v1/public_bootstrap?select=*", authorized: false)
-        guard list.count == 1, list[0].deployment_id == service.deployment_id else { throw JNotesError("Cloud deployment differs. Sync paused.") }; return list[0]
+        guard list.count == 1, list[0].protocol_version == 1, list[0].deployment_id == service.deployment_id else { throw JNotesError("Cloud deployment differs. Sync paused.") }; return list[0]
     }
     func signIn(_ email: String, auth: String) async throws -> AuthSession {
         let s: AuthSession = try await request("/auth/v1/token?grant_type=password", body: ["email": email.trimmingCharacters(in: .whitespacesAndNewlines), "password": auth], authorized: false)

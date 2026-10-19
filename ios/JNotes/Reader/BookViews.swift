@@ -48,6 +48,7 @@ struct BookReaderView: View {
     @AppStorage("theme") private var theme = "dark_1"
     @AppStorage("readerFontSize") private var fontSize = 19.0
     @State private var publication: EpubPublication?
+    @State private var navigationURL: URL?
     @State private var chapter: Int
     @State private var scroll: Double
     @State private var error: String?
@@ -65,8 +66,8 @@ struct BookReaderView: View {
                 } label: { Image(systemName: "list.bullet").frame(width: 44, height: 44) }.accessibilityLabel("Reader settings and chapters")
             }.background(palette.chrome)
             if let publication {
-                EpubWebView(url: publication.chapters[chapter], root: publication.root, dark: palette.dark, fontSize: fontSize, initialScroll: scroll, onProgress: { fraction in scroll = fraction; saveProgress() }, onInternal: { url in
-                    if let index = publication.chapters.firstIndex(where: { $0.standardizedFileURL.path == url.standardizedFileURL.path }) { chapter = index; scroll = 0 }
+                EpubWebView(url: navigationURL ?? publication.chapters[chapter], root: publication.root, dark: palette.dark, fontSize: fontSize, initialScroll: scroll, onProgress: { fraction in scroll = fraction; saveProgress() }, onInternal: { url in
+                    if let index = publication.chapters.firstIndex(where: { $0.standardizedFileURL.path == url.standardizedFileURL.path }) { chapter = index; scroll = 0; navigationURL = url }
                 }, onExternal: { link = $0 })
                 HStack {
                     Button { changeChapter(chapter - 1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }.disabled(chapter == 0)
@@ -82,7 +83,7 @@ struct BookReaderView: View {
     }
     private func changeChapter(_ index: Int) {
         guard let publication, publication.chapters.indices.contains(index) else { return }
-        chapter = index; scroll = 0; saveProgress()
+        chapter = index; scroll = 0; navigationURL = nil; saveProgress()
     }
     private func saveProgress() { if let publication { library.progress(book.id, chapter: chapter, scroll: scroll, count: publication.chapters.count) } }
 }
@@ -129,7 +130,9 @@ struct EpubWebView: UIViewRepresentable {
             applyStyle()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 let scroll = webView.scrollView
-                scroll.setContentOffset(CGPoint(x: 0, y: max(0, scroll.contentSize.height - scroll.bounds.height) * self.parent.initialScroll), animated: false)
+                if self.parent.url.fragment == nil {
+                    scroll.setContentOffset(CGPoint(x: 0, y: max(0, scroll.contentSize.height - scroll.bounds.height) * self.parent.initialScroll), animated: false)
+                }
                 self.restoring = false
             }
         }

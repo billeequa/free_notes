@@ -41,6 +41,8 @@ Settings provides text/ZIP import, ZIP export and Trash. Imports never silently 
 
 The `.jnotes-ios-index.json` sidecar holds stable local/cloud IDs. Keep it when moving an entire iOS notes folder. A short-lived `.jnotes-ios-journal.json` makes a save/rename/trash operation recoverable after interruption. These are app bookkeeping files; note bodies and tasks remain directly readable without them. If either bookkeeping file is damaged, the app stops writes rather than silently inventing new identities over a synced notebook.
 
+The default notes folder and imported ebook library are inside the app container and are removed if the app is deleted. Export or move important files through Files before uninstalling. A separately chosen external folder is managed by its Files provider.
+
 Folder access uses iOS security-scoped bookmarks. Choose the folder again if its provider withdraws access. As with any Files document provider, avoid having multiple unrelated applications overwrite the same folder simultaneously. The app reconciles external file changes on launch. It does not require a network connection to launch or edit.
 
 ## Android UX reference
