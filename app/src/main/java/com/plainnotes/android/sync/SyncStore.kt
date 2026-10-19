@@ -21,6 +21,10 @@ class SyncStore(context: Context) : SQLiteOpenHelper(context, "web-sync.db", nul
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { error("Unsupported sync sidecar version; local files remain usable") }
     private fun Cursor.record() = Record(getString(0),getString(1),getLong(2),if(isNull(3)) null else getString(3),getInt(4)!=0,getString(5),getInt(6)!=0)
+    @Synchronized fun taskRecords(): List<Record> = readableDatabase.rawQuery("SELECT local_key,id,revision,base,base_deleted,content,deleted FROM records WHERE local_key LIKE 'task:%'",null).use {c->buildList {while(c.moveToNext())add(c.record())}}
+    @Synchronized fun linkedNotes(): List<String> = readableDatabase.rawQuery("SELECT local_key FROM records WHERE local_key LIKE 'note:%' AND deleted=0 AND base IS NOT NULL",null).use {c->buildList {while(c.moveToNext())add(c.getString(0))}}
+    @Synchronized fun operation(id: String): Operation? = readableDatabase.rawQuery("SELECT op,id,expected,content,deleted,envelope FROM outbox WHERE id=?",arrayOf(id)).use {c->if(c.moveToFirst())Operation(c.getString(0),c.getString(1),c.getLong(2),c.getString(3),c.getInt(4)!=0,if(c.isNull(5))null else c.getString(5)) else null}
+    @Synchronized fun hasPending(): Boolean = readableDatabase.rawQuery("SELECT EXISTS(SELECT 1 FROM outbox WHERE id NOT IN(SELECT id FROM conflicts))",null).use {it.moveToFirst();it.getInt(0)!=0}
     @Synchronized fun records(): List<Record> = readableDatabase.rawQuery("SELECT local_key,id,revision,base,base_deleted,content,deleted FROM records",null).use { c -> buildList { while(c.moveToNext()) add(c.record()) } }
     @Synchronized fun record(id: String): Record? = readableDatabase.rawQuery("SELECT local_key,id,revision,base,base_deleted,content,deleted FROM records WHERE id=?",arrayOf(id)).use { if(it.moveToFirst()) it.record() else null }
     @Synchronized fun byLocal(local: String): Record? = readableDatabase.rawQuery("SELECT local_key,id,revision,base,base_deleted,content,deleted FROM records WHERE local_key=?",arrayOf(local)).use { if(it.moveToFirst()) it.record() else null }
@@ -55,7 +59,17 @@ class SyncStore(context: Context) : SQLiteOpenHelper(context, "web-sync.db", nul
         }finally{writableDatabase.endTransaction()}
         return true
     }
-    @Synchronized fun pending(limit: Int = 30): List<Operation> = readableDatabase.rawQuery("SELECT op,id,expected,content,deleted,envelope FROM outbox WHERE id NOT IN(SELECT id FROM conflicts) ORDER BY rowid LIMIT ?",arrayOf(limit.toString())).use { c->buildList {while(c.moveToNext())add(Operation(c.getString(0),c.getString(1),c.getLong(2),c.getString(3),c.getInt(4)!=0,if(c.isNull(5))null else c.getString(5)))}}
+    @Synchronized fun pending(limit: Int = 20): List<Operation> = readableDatabase.rawQuery("SELECT op,id,expected,content,deleted,envelope FROM outbox WHERE id NOT IN(SELECT id FROM conflicts) ORDER BY rowid LIMIT ?",arrayOf(limit.toString())).use {c->
+        buildList {
+            var bytes=0
+            while(c.moveToNext()) {
+                val content=c.getString(3);val size=content.toByteArray(Charsets.UTF_8).size
+                if(isNotEmpty()&&bytes+size>2*1024*1024)break
+                add(Operation(c.getString(0),c.getString(1),c.getLong(2),content,c.getInt(4)!=0,if(c.isNull(5))null else c.getString(5)))
+                bytes+=size
+            }
+        }
+    }
     @Synchronized fun prepare(op: String, envelope: JSONObject) {writableDatabase.update("outbox",ContentValues().apply {put("envelope",envelope.toString())},"op=? AND envelope IS NULL",arrayOf(op))}
     @Synchronized fun acknowledge(op: Operation, revision: Long, seq: Long) {
         writableDatabase.beginTransaction()

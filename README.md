@@ -1,6 +1,6 @@
 # Jnotes
 
-Jnotes is a small, ad-free Android notes app built around ordinary UTF-8 text files. It has no account, cloud service, database, analytics, or advertising SDK. The user chooses a folder, and that folder remains the source of truth.
+Jnotes is a small, ad-free Android notes app built around ordinary UTF-8 text files. Local use needs no account or cloud service. The user chooses a folder, and that folder remains the source of truth. Optional encrypted Web Sync is in development; analytics and advertising SDKs are not included.
 
 The next release is **1.3**. See [release notes](releases/NOTES.md) and [update/signing setup](docs/UPDATES.md).
 
@@ -73,6 +73,6 @@ See [device verification](docs/DEVICE_TESTING.md) for the Pixel 4a 5G regression
 
 The development implementation adds To-Do, Notes and Journal in the browser, opt-in Android synchronization, client-side encryption, revision history and conflict handling. Sync is off by default; phone files remain readable/editable independently of accounts and servers.
 
-The frontend and backend SQL are both in this repository. [Host it anywhere](server/README.md), follow the [operator/setup guide](docs/web-sync/operator-guide.md), and review [the protocol](docs/web-sync/protocol.md) and [recovery behavior](docs/web-sync/recovery.md). For local browser testing, build and serve the frontend, then visit **http://localhost:8080**. Once hosted, use your actual HTTPS domain in both Android Web Sync setup and your browser. GitHub itself is the source host, not the notebook login page.
+The frontend and backend SQL are both in this repository. [Get a live website address with Cloudflare Pages](docs/web-sync/cloudflare-pages.md), [host it anywhere](server/README.md), follow the [operator/setup guide](docs/web-sync/operator-guide.md), and review [the protocol](docs/web-sync/protocol.md) and [recovery behavior](docs/web-sync/recovery.md). For local browser testing, build and serve the frontend, then visit **http://localhost:8080**. Once hosted, use your actual HTTPS domain in both Android Web Sync setup and your browser. GitHub itself is the source host, not the notebook login page.
 
 This branch is a review checkpoint. Do not migrate personal data or publish a signed update until the security, recovery and populated-device acceptance checks are complete.

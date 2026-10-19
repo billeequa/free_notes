@@ -9,10 +9,21 @@ export function publicConfig(env = process.env) {
     throw Error("Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.");
   const url = new URL(supabase_url);
   if (
-    !["https:"].includes(url.protocol) &&
-    !["localhost", "127.0.0.1"].includes(url.hostname)
+    url.protocol !== "https:" &&
+    !(
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1"].includes(url.hostname)
+    )
   )
     throw Error("HTTPS cloud endpoint required.");
+  if (
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/"
+  )
+    throw Error("Use the backend origin without credentials, query, or path.");
   if (!publishable_key.startsWith("sb_publishable_")) {
     try {
       const claims = JSON.parse(

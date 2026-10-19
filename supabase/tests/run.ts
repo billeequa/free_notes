@@ -1,5 +1,5 @@
 import { PGlite } from "../../web/node_modules/@electric-sql/pglite/dist/index.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import assert from "node:assert/strict";
 import { restoreSQL } from "../../server/restore-encrypted-export.mjs";
 const db = new PGlite();
@@ -14,12 +14,9 @@ await db.exec(`
  grant usage on schema public to anon,authenticated;
  alter default privileges in schema public grant all on tables to anon,authenticated;
 `);
-await db.exec(
-  readFileSync(
-    new URL("../migrations/202610180001_web_sync.sql", import.meta.url),
-    "utf8",
-  ),
-);
+const migrations = new URL("../migrations/", import.meta.url);
+for (const file of readdirSync(migrations).filter((f) => f.endsWith(".sql")).sort())
+  await db.exec(readFileSync(new URL(file, migrations), "utf8"));
 const owner = "11111111-1111-4111-8111-111111111111",
   other = "22222222-2222-4222-8222-222222222222",
   session = "33333333-3333-4333-8333-333333333333",
@@ -145,6 +142,18 @@ await db.query("select finish_password($1)", [transition]);
 vault = await scalar("select get_vault() as v");
 assert.equal(vault.vault.staged_envelope, null);
 assert.deepEqual(vault.vault.recovery_envelope, envelope);
+// A partial administrator restore must not look like a valid empty/current vault.
+for (const corrupt of [
+  "delete from record_history where seq=1",
+  "delete from records",
+]) {
+  await db.exec("reset role;begin;" + corrupt);
+  await as("authenticated", owner, session);
+  await denied("select get_vault()");
+  await db.exec("rollback");
+  await as("authenticated", owner, session);
+  assert.equal((await scalar("select get_vault() as v")).high_water, 26);
+}
 // Temporarily grant reads to exercise RLS itself, then restore the stricter grants.
 await db.exec(
   "reset role;grant select on vaults,records,record_history,client_devices to authenticated",

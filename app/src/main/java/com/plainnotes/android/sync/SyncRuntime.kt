@@ -7,6 +7,7 @@ import com.plainnotes.android.data.NotesRepository
 import com.plainnotes.android.data.TodoItem
 import com.plainnotes.android.model.EditableNote
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -50,24 +51,38 @@ object SyncRuntime {
         if(!enabled(c))return
         try {val s=store(c);s.byLocal("note:$uri")?.let {s.clearApply(it.id)}}catch(e:Exception){status(c,"Saved on phone — sync repair needed")}
     }
-    fun captureTodos(c: Context,items: List<TodoItem>,schedule: Boolean=true) {
+    fun captureTodos(c: Context,items: List<TodoItem>,schedule: Boolean=true,previous: List<TodoItem>? = null) {
         if(!enabled(c))return
         try {
-            val s=store(c);var changed=false
-            for(t in items){s.idFor("task:${t.id}");changed=s.capture("task:${t.id}",SyncPayload.task(t),false)||changed}
-            val present=items.mapTo(hashSetOf()){it.id}
-            for(r in s.records().filter {it.local.startsWith("task:")&&!it.deleted&&it.id !in present})
-                if(r.content!="{}")changed=s.capture(r.local,JSONObject(r.content),true)||changed
+            val s=store(c)
+            val changed=if(previous==null)captureTodosStrict(s,items) else {
+                val old=previous.associateBy {it.id};val current=items.associateBy {it.id};var changed=false
+                for(t in items)if(t!=old[t.id]) {s.idFor("task:${t.id}");changed=s.capture("task:${t.id}",SyncPayload.task(t),false)||changed}
+                for(t in previous)if(t.id !in current) {s.idFor("task:${t.id}");changed=s.capture("task:${t.id}",SyncPayload.task(t),true)||changed}
+                changed
+            }
             if(changed&&schedule)SyncRuntime.schedule(c)
         }catch(e:Exception){status(c,"Saved on phone — sync queue needs repair")}
     }
-    fun schedule(c: Context,periodic: Boolean=false) {
+    fun captureTodosStrict(s: SyncStore,items: List<TodoItem>): Boolean {
+        var changed=false
+        val existing=s.taskRecords().associateBy {it.id}
+        for(t in items){
+            val payload=SyncPayload.task(t);val old=existing[t.id]
+            if(old==null || old.deleted || old.content!=SyncPayload.canonical(payload)) {s.idFor("task:${t.id}");changed=s.capture("task:${t.id}",payload,false)||changed}
+        }
+        val present=items.mapTo(hashSetOf()){it.id}
+        for(r in existing.values.filter {!it.deleted&&it.id !in present})
+            if(r.content!="{}")changed=s.capture(r.local,JSONObject(r.content),true)||changed
+        return changed
+    }
+    fun schedule(c: Context,periodic: Boolean=false,continuation: Boolean=false) {
         if(!enabled(c))return
         val work=WorkManager.getInstance(c.applicationContext)
         val constraints=Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         if(periodic)work.enqueueUniquePeriodicWork(PERIODIC,ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<SyncWorker>(15,TimeUnit.MINUTES).setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build())
-        work.enqueueUniqueWork(IMMEDIATE,ExistingWorkPolicy.KEEP,
+        work.enqueueUniqueWork(IMMEDIATE,if(continuation)ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<SyncWorker>().setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build())
     }
     fun disable(c: Context) {
@@ -137,6 +152,8 @@ object SyncRuntime {
     }
     suspend fun enable(c: Context,setup: Setup,web: String,email: String) {
         val s=store(c)
+        val rootUri=NotesRepository(c).rootFolderUri().first()?.toString() ?: error("Choose a notes folder first")
+        require(s.meta("root_uri").isEmpty() || s.meta("root_uri")==rootUri){"The previously linked notes folder differs. Relink that folder or use a separately reviewed new-vault reset. Local files are unchanged."}
         val oldOwner=s.meta("owner")
         require(oldOwner.isEmpty() || oldOwner==setup.owner && s.meta("deployment")==setup.bootstrap.getString("deployment_id") && s.meta("key_id")==setup.keyId){"Previously linked cloud differs. A reviewed backup/reset is required. Phone files are unchanged."}
         val backup=NotesRepository(c).backupForSync()
@@ -148,6 +165,7 @@ object SyncRuntime {
         val state=setup.vault
         val secrets=JSONObject().put("session",setup.api.session).put("key",SyncCrypto.b64(setup.key)).put("owner",setup.owner).put("key_id",setup.keyId)
         SyncSecrets(c).save(secrets)
+        s.setMeta("root_uri",rootUri)
         s.setMeta("owner",setup.owner);s.setMeta("deployment",setup.bootstrap.getString("deployment_id"));s.setMeta("key_id",setup.keyId)
         if(s.meta("epoch").isEmpty())s.setMeta("epoch",state.getString("epoch"))
         if(s.meta("device").isEmpty())s.setMeta("device",UUID.randomUUID().toString())
@@ -155,13 +173,13 @@ object SyncRuntime {
             .putString("backup",backup).putBoolean("enabled",true).putString("status","Saved on phone — pending initial upload").commit()
         setup.key.fill(0);setup.recoveryCode=null
         // Snapshot and outbox construction occur off the UI thread, after verified backup and consent.
-        NotesRepository(c).reconcileForSync(s)
         schedule(c,periodic=true)
     }
     /** Explicit repair only: verified phone backup, then preserve both sides as conflicts.
      * This never replaces or deletes phone files and never accepts an empty server implicitly. */
     suspend fun repair(c: Context) = workerMutex.withLock {
         val s=store(c);val prefs=prefs(c);val repo=NotesRepository(c)
+        require(repo.rootFolderUri().first()?.toString()==s.meta("root_uri")){"Relink the original notes folder before repairing sync"}
         val backup=repo.backupForSync()
         val secret=SyncSecrets(c).read();val key=SyncCrypto.unb64(secret.getString("key"))
         try {
@@ -180,7 +198,7 @@ object SyncRuntime {
                     if(cursor<=high)remote[r.getString("id")]=r
                 }
             }
-            repo.reconcileForSync(s)
+            while(!repo.reconcileForSync(s))kotlinx.coroutines.yield()
             // Preserve prior unresolved variants inside the verified recovery ZIP before resetting their queue bases.
             s.clearConflictsForRepair()
             for(record in s.records()) {

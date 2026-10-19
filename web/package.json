@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
+    "build:pages": "npm run build && node ../server/build-pages.mjs",
     "test": "node --import tsx --test ../protocol/*.test.ts",
     "test:sql": "node --import tsx ../supabase/tests/run.ts"
   },

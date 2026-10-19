@@ -6,7 +6,6 @@ import android.database.MatrixCursor
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
-import android.provider.DocumentsProvider
 import com.plainnotes.android.data.AppSettingsRepository
 import com.plainnotes.android.data.NoteFileParser
 import com.plainnotes.android.data.NotesRepository
@@ -50,6 +49,23 @@ class SyncRepositoryTest {
         SyncRuntime.prefs(context).edit().putBoolean("enabled",true).commit()
         return repo to note
     }
+    @Test fun reconciliationResumesInBoundedBatchesWithoutDuplicateIdentities()=runBlocking {
+        for(i in 0..4)File(provider.root,"20261018-12000$i-note.txt").writeText(
+            NoteFileParser.serialize(NoteTextContent("note $i",date,date,"Body $i")))
+        val repo=NotesRepository(context)
+        assertFalse(repo.reconcileForSync(store,2))
+        assertEquals(2,store.records().size)
+        assertTrue(store.meta("reconcile_after").isNotEmpty())
+        assertFalse(repo.reconcileForSync(store,2))
+        assertEquals(4,store.records().size)
+        assertTrue(repo.reconcileForSync(store,2))
+        assertEquals("",store.meta("reconcile_after"))
+        assertEquals(5,store.records().map{it.id}.toSet().size)
+        val ids=store.records().map{it.id}.toSet()
+        while(!repo.reconcileForSync(store,2)){}
+        assertEquals(ids,store.records().map{it.id}.toSet())
+        assertEquals(5,store.pending().size)
+    }
     @Test fun compareAndSetNeverOverwritesNewPhoneWriting()=runBlocking {
         val (repo,note)=existing();val id=store.byLocal("note:${note.documentUri}")!!.id
         val expected=SyncPayload.canonical(SyncPayload.note(note,id))
@@ -84,6 +100,20 @@ class SyncRepositoryTest {
         assertEquals(id,store.records().single().id)
         assertEquals(note.body,restarted.loadEditableNote(restarted.listActiveNotes().single().id)!!.body)
     }
+    @Test fun cloudRestoreCanRecoverANotePermanentlyRemovedFromPhoneTrash()=runBlocking {
+        val (repo,note)=existing();val id=store.byLocal("note:${note.documentUri}")!!.id
+        repo.moveToTrash(note.documentUri.toString())
+        val trashed=repo.listTrashedNotes().single()
+        store.acknowledge(store.pending().single(),2,2)
+        repo.deletePermanently(trashed.documentUri.toString())
+        val record=store.record(id)!!
+        val payload=JSONObject(record.content)
+        val local=repo.applySyncRecord(payload,false,record.content,record.local,store)
+        assertNotNull(local)
+        store.accept(id,local!!,JSONObject().put("revision",3).put("deleted",false),payload)
+        assertEquals(1,repo.listActiveNotes().size)
+        assertEquals(note.body,repo.loadEditableNote(repo.listActiveNotes().single().id)!!.body)
+    }
     @Test fun openEditorDefersPullAndVerifiedBackupKeepsExistingReadableFiles()=runBlocking {
         val (repo,note)=existing();val id=store.byLocal("note:${note.documentUri}")!!.id
         val p=SyncPayload.note(note.copy(body="Web"),id)
@@ -98,8 +128,29 @@ class SyncRepositoryTest {
     }
 }
 
-private class SyncDocumentsProvider(val root:File):DocumentsProvider() {
+private class SyncDocumentsProvider(val root:File):android.content.ContentProvider() {
     var failDelete=false;var failWrite=false
+    override fun query(uri:android.net.Uri,projection:Array<out String>?,selection:String?,selectionArgs:Array<out String>?,sortOrder:String?):Cursor {
+        val document=DocumentsContract.getDocumentId(uri)
+        return if(uri.lastPathSegment=="children")queryChildDocuments(document,projection,sortOrder) else queryDocument(document,projection)
+    }
+    override fun openFile(uri:android.net.Uri,mode:String)=openDocument(DocumentsContract.getDocumentId(uri),mode,null)
+    override fun getType(uri:android.net.Uri):String=if(file(DocumentsContract.getDocumentId(uri)).isDirectory)DocumentsContract.Document.MIME_TYPE_DIR else "text/plain"
+    override fun call(method:String,arg:String?,extras:android.os.Bundle?):android.os.Bundle {
+        val uri=extras!!.getParcelable<android.net.Uri>("uri")!!
+        return when(method) {
+            "android:createDocument" -> {
+                val document=createDocument(DocumentsContract.getDocumentId(uri),extras.getString("mime_type")!!,extras.getString("_display_name")!!)
+                android.os.Bundle().apply{putParcelable("uri",DocumentsContract.buildDocumentUriUsingTree(uri,document))}
+            }
+            "android:deleteDocument" -> {deleteDocument(DocumentsContract.getDocumentId(uri));android.os.Bundle()}
+            else -> error("Unexpected provider method $method")
+        }
+    }
+    override fun insert(uri:android.net.Uri,values:android.content.ContentValues?):android.net.Uri?=null
+    override fun delete(uri:android.net.Uri,selection:String?,selectionArgs:Array<out String>?)=0
+    override fun update(uri:android.net.Uri,values:android.content.ContentValues?,selection:String?,selectionArgs:Array<out String>?)=0
+
     override fun onCreate()=true
     private fun file(id:String)=if(id=="root")root else File(root,id.removePrefix("root/"))
     private fun id(f:File)=if(f==root)"root" else "root/"+f.relativeTo(root).invariantSeparatorsPath
@@ -108,20 +159,20 @@ private class SyncDocumentsProvider(val root:File):DocumentsProvider() {
         return MatrixCursor(columns).apply{files.forEach{f->addRow(columns.map{column->when(column){
             "document_id"->id(f);"_display_name"->f.name;"mime_type"->if(f.isDirectory)DocumentsContract.Document.MIME_TYPE_DIR else if(f.extension=="zip")"application/zip" else "text/plain"
             "last_modified"->f.lastModified();"_size"->f.length();"flags"->0;else->null
-        }}.toTypedArray())}}
+        }}.toTypedArray<Any?>())}}
     }
-    override fun queryRoots(projection:Array<out String>?)=MatrixCursor(projection?:arrayOf("root_id","document_id"))
-    override fun queryDocument(documentId:String,projection:Array<out String>?)=cursor(listOf(file(documentId)).filter{it.exists()},projection)
-    override fun queryChildDocuments(parentDocumentId:String,projection:Array<out String>?,sortOrder:String?)=cursor(file(parentDocumentId).listFiles().orEmpty().toList(),projection)
-    override fun openDocument(documentId:String,mode:String,signal:CancellationSignal?):ParcelFileDescriptor {
+    fun queryRoots(projection:Array<out String>?)=MatrixCursor(projection?:arrayOf("root_id","document_id"))
+    fun queryDocument(documentId:String,projection:Array<out String>?)=cursor(listOf(file(documentId)).filter{it.exists()},projection)
+    fun queryChildDocuments(parentDocumentId:String,projection:Array<out String>?,sortOrder:String?)=cursor(file(parentDocumentId).listFiles().orEmpty().toList(),projection)
+    fun openDocument(documentId:String,mode:String,signal:CancellationSignal?):ParcelFileDescriptor {
         if(failWrite&&mode.contains('w'))throw java.io.IOException("Injected write failure")
         return ParcelFileDescriptor.open(file(documentId),ParcelFileDescriptor.parseMode(mode))
     }
-    override fun createDocument(parentDocumentId:String,mimeType:String,displayName:String):String {
+    fun createDocument(parentDocumentId:String,mimeType:String,displayName:String):String {
         val f=File(file(parentDocumentId),displayName)
         if(mimeType==DocumentsContract.Document.MIME_TYPE_DIR)f.mkdirs() else f.createNewFile()
         return id(f)
     }
-    override fun deleteDocument(documentId:String) {if(failDelete)throw java.io.IOException("Injected delete failure");check(file(documentId).delete())}
-    override fun isChildDocument(parentDocumentId:String,documentId:String)=file(documentId).canonicalPath.startsWith(file(parentDocumentId).canonicalPath+File.separator)
+    fun deleteDocument(documentId:String) {if(failDelete)throw java.io.IOException("Injected delete failure");check(file(documentId).delete())}
+    fun isChildDocument(parentDocumentId:String,documentId:String)=file(documentId).canonicalPath.startsWith(file(parentDocumentId).canonicalPath+File.separator)
 }

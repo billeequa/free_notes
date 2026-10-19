@@ -19,6 +19,13 @@ jobs:
       - run: npm --prefix web test
       - run: npm --prefix web run test:sql
       - run: node --test server/server.test.mjs
+      - name: Verify Pages build with synthetic public configuration
+        run: npm --prefix web run build:pages
+        env:
+          SUPABASE_URL: https://cloud.example.test
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          WEB_URL: https://notes.example.test
+      # Remove synthetic deployment configuration from the portable bundle.
       - run: npm --prefix web run build
       - run: npm --prefix web audit --audit-level=moderate
       - uses: actions/upload-artifact@v4

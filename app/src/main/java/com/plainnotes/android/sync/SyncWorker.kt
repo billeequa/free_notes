@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.plainnotes.android.data.NotesRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -17,14 +18,16 @@ class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(co
             var key:ByteArray?=null
             try {
                 val c=applicationContext;val prefs=SyncRuntime.prefs(c);val store=SyncRuntime.store(c)
-                val secret=SyncSecrets(c).read()
+                val secret=runCatching {SyncSecrets(c).read()}.getOrElse {throw SyncApi.AuthRequired()}
                 key=SyncCrypto.unb64(secret.getString("key"))
                 val api=SyncApi(prefs.getString("url","")!!,prefs.getString("public_key","")!!,secret.getJSONObject("session"))
                 api.refresh();secret.put("session",api.session);SyncSecrets(c).save(secret)
                 val b=api.bootstrap();val state=api.vault();val vault=state.optJSONObject("vault") ?: throw SyncApi.CloudChanged()
                 if(b.getString("deployment_id")!=store.meta("deployment") || state.getString("epoch")!=store.meta("epoch") ||
                     vault.getString("key_id")!=store.meta("key_id") || state.getLong("high_water")<store.meta("floor","0").toLong())throw SyncApi.CloudChanged()
-                val repo=NotesRepository(c);repo.recoverSyncApplies(store);repo.reconcileForSync(store)
+                val repo=NotesRepository(c)
+                require(repo.rootFolderUri().first()?.toString()==store.meta("root_uri")){"Notes folder differs; relink before syncing"}
+                repo.recoverSyncApplies(store);val reconciled=repo.reconcileForSync(store)
                 val deadline=System.currentTimeMillis()+30000;var applied=false;var count=0;var bytes=0
                 fun decrypt(r:JSONObject):JSONObject {
                     val id=r.getString("id")
@@ -34,7 +37,7 @@ class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(co
                 suspend fun acceptRemote(remote:JSONObject) {
                     val id=remote.getString("id");val payload=decrypt(remote);val record=store.record(id)
                     if(record!=null && record.revision>=remote.getLong("revision"))return
-                    val pending=store.pending(1000).find {it.id==id&&it.op==remote.optString("op_id")}
+                    val pending=store.operation(id)?.takeIf {it.op==remote.optString("op_id")}
                     if(pending!=null){store.acknowledge(pending,remote.getLong("revision"),remote.getLong("seq"));return}
                     if(record!=null && record.content==SyncPayload.canonical(payload) && record.deleted==remote.getBoolean("deleted")) {
                         store.accept(id,record.local,remote,payload);return
@@ -64,7 +67,7 @@ class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(co
                     acceptRemote(remote)
                     cursor=remote.getLong("seq");store.setMeta("cursor",cursor.toString());store.setMeta("floor",maxOf(cursor,store.meta("floor","0").toLong()).toString())
                 }
-                if(cursor<page.getLong("high_water")){if(applied)SyncRuntime.localChanges.tryEmit(Unit);return@withLock Result.retry()}
+                if(cursor<page.getLong("high_water")){if(applied)SyncRuntime.localChanges.tryEmit(Unit);SyncRuntime.schedule(c,continuation=true);return@withLock Result.success()}
                 for(op in store.pending()) {
                     if(!SyncRuntime.enabled(c)||isStopped)break
                     if(count>=20||bytes>2*1024*1024||System.currentTimeMillis()>deadline)break
@@ -82,8 +85,9 @@ class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(co
                 api.rpc("ack_cursor",JSONObject().put("p_device_id",store.meta("device")).put("p_epoch",store.meta("epoch")).put("p_cursor",cursor))
                 if(applied)SyncRuntime.localChanges.tryEmit(Unit)
                 prefs.edit().putLong("last_sync",System.currentTimeMillis()).apply()
-                SyncRuntime.status(c,if(store.conflicts().isNotEmpty())"Conflict — action needed" else if(store.count()>0)"Saved on phone — pending upload" else "Synced")
-                if(store.pending().isNotEmpty())Result.retry() else Result.success()
+                SyncRuntime.status(c,if(store.conflicts().isNotEmpty())"Conflict — action needed" else if(store.count()>0||!reconciled)"Saved on phone — pending upload" else "Synced")
+                if(store.hasPending()||!reconciled)SyncRuntime.schedule(c,continuation=true)
+                Result.success()
             }catch(e:CancellationException){throw e}
             catch(e:SyncApi.CloudChanged){SyncRuntime.status(applicationContext,e.message!!);Result.failure()}
             catch(e:SyncApi.AuthRequired){SyncRuntime.status(applicationContext,e.message!!);Result.failure()}
