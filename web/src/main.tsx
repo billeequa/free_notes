@@ -12,6 +12,12 @@ type AuthMode =
   | "save-recovery";
 import { newPayload, type Payload } from "../../protocol/types";
 import "./style.css";
+const themes = {
+  light: "Paper", light_2: "Sunshine", light_3: "Sage",
+  dark_1: "Forest", dark_2: "Charcoal", dark_3: "Midnight",
+  snow: "Snow", rose: "Rose", lavender: "Lavender", amoled: "OLED black",
+};
+type Theme = keyof typeof themes;
 const symbols: Record<string, string> = {
   urgent: "🚨",
   important: "❗",
@@ -26,6 +32,17 @@ function download(name: string, text: string, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function App() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      const saved = localStorage.getItem("jnotes-theme");
+      if (saved && Object.hasOwn(themes, saved)) return saved as Theme;
+    } catch { /* Theme preferences are optional when storage is unavailable. */ }
+    return "light";
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("jnotes-theme", theme); } catch { /* Keep the in-memory choice. */ }
+  }, [theme]);
   const [entry] = useState(() => {
     const result = parseEmailReturn(window.location.href);
     if (result.cleanURL !== window.location.href)
@@ -440,7 +457,7 @@ function App() {
                 : setCompletion(p.id)
             }
           >
-            {p.completed_at || completion === p.id ? "✓" : "○"}
+            {p.completed_at || completion === p.id ? "✓" : ""}
           </button>
           <button className="task-title" onClick={() => void openEntry(e)}>
             <strong>
@@ -478,8 +495,10 @@ function App() {
         </div>
         {completion === p.id && (
           <div className="confirmation">
-            <span>Complete this task?</span>
             <button
+              className="confirm-check"
+              aria-label="Confirm task completion"
+              title="Confirm task completion"
               onClick={() => {
                 setCompletion(null);
                 void mutate(e, {
@@ -488,8 +507,9 @@ function App() {
                 });
               }}
             >
-              ✓ Confirm
+              ✓
             </button>
+            <span>Complete this task?</span>
             <button onClick={() => setCompletion(null)}>Cancel</button>
           </div>
         )}
@@ -827,6 +847,15 @@ function App() {
         )}
         {tab === "settings" ? (
           <section className="settings panel">
+            <h2>Themes</h2>
+            <label>
+              Website theme
+              <select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
+                {Object.entries(themes).map(([id, label]) => (
+                  <option key={id} value={id}>{label}</option>
+                ))}
+              </select>
+            </label>
             <h2>Web Sync</h2>
             <p>
               All records are encrypted on your device. Your phone keeps its own
@@ -891,8 +920,10 @@ function App() {
               <button disabled={busy}>Change password</button>
             </form>
             <p className="footnote">
-              For hosting, recovery, and moving servers, see
-              docs/web-sync/operator-guide.md in the repository.
+              For hosting, recovery, and moving servers, see the{" "}
+              <a href="https://github.com/billeequa/free_notes/blob/main/docs/web-sync/operator-guide.md" target="_blank" rel="noopener noreferrer">operator guide</a>{" "}
+              in the{" "}
+              <a href="https://github.com/billeequa/free_notes" target="_blank" rel="noopener noreferrer">JNotes repository</a>.
             </p>
           </section>
         ) : (
