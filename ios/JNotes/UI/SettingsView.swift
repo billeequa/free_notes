@@ -151,7 +151,7 @@ struct WebSyncView: View {
             Button("Disconnect", role: .destructive) { do { try sync.disconnect() } catch { self.error = error.localizedDescription } }
         } message: { Text("All notes remain on this phone. Pending operations and conflicts are retained for reconnection.") }
     }
-    private func resolve(_ id: String, _ choice: String) { do { try sync.resolve(id, choice: choice) } catch { error = error.localizedDescription } }
+    private func resolve(_ id: String, _ choice: String) { do { try sync.resolve(id, choice: choice) } catch { self.error = error.localizedDescription } }
     private var previewView: some View {
         NavigationStack {
             List {

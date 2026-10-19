@@ -109,7 +109,7 @@ struct TaskCard: View {
     @State private var drag: CGFloat = 0
     private var offset: CGFloat { pending ? (left ? 64 : -64) : min(0, max(-64, drag)) }
     var body: some View {
-        ZStack(alignment: left ? .leading : .trailing) {
+        ZStack(alignment: pending && left ? .leading : .trailing) {
             if pending || drag < -5 {
                 Button(action: confirm) { Image(systemName: "checkmark").font(.title2.bold()).frame(width: 56, height: 56).background(Color(hex: 0x208447), in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white) }.disabled(!pending).accessibilityLabel("Confirm completion: \(payload.title)")
             }
