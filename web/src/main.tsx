@@ -1,6 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Cloud, type Entry } from "./client";
+import { parseEmailReturn } from "./authReturn";
+type AuthMode =
+  | "login"
+  | "setup-email"
+  | "recover-email"
+  | "create"
+  | "unlock"
+  | "recover"
+  | "save-recovery";
 import { newPayload, type Payload } from "../../protocol/types";
 import "./style.css";
 const symbols: Record<string, string> = {
@@ -17,13 +26,27 @@ function download(name: string, text: string, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function App() {
+  const [entry] = useState(() => {
+    const result = parseEmailReturn(window.location.href);
+    if (result.cleanURL !== window.location.href)
+      window.history.replaceState(null, "", result.cleanURL);
+    return result;
+  });
+  const [mode, setMode] = useState<AuthMode>(
+    entry.flow === "setup"
+      ? "setup-email"
+      : entry.flow === "recovery"
+        ? "recover-email"
+        : "login",
+  );
   const [cloud, setCloud] = useState<Cloud | null>(null),
     [ready, setReady] = useState(false),
     [message, setMessage] = useState("Connecting…");
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
-    [recovery, setRecovery] = useState(false),
-    [otp, setOtp] = useState(""),
+    [confirmPassword, setConfirmPassword] = useState(""),
+    [savedRecovery, setSavedRecovery] = useState(false),
+    [resendAfter, setResendAfter] = useState(0),
     [code, setCode] = useState(""),
     [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("task"),
@@ -53,11 +76,52 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     Cloud.connect()
-      .then((c) => {
-        if (!cancelled) {
-          setCloud(c);
-          setMessage("Your notebook, wherever you are.");
-        }
+      .then(async (c) => {
+        if (cancelled) return;
+        setCloud(c);
+        const session = entry.session;
+        delete entry.session;
+        if (session) {
+          setBusy(true);
+          setMessage("Opening your email link…");
+          try {
+            const account = await c.acceptEmailLink(session);
+            if (cancelled) {
+              await c.logout();
+              return;
+            }
+            setEmail(account.email);
+            setMode(
+              !account.hasNotebook
+                ? "create"
+                : entry.flow === "recovery"
+                  ? "recover"
+                  : "unlock",
+            );
+            setMessage(
+              !account.hasNotebook
+                ? "Email verified. Choose your password below. Use this same password on your phone."
+                : entry.flow === "recovery"
+                  ? "Email verified. Enter your saved recovery code and choose a new password."
+                  : "Email verified. Enter your JNotes password to open your notebook.",
+            );
+          } catch (e) {
+            setMode(
+              entry.flow === "recovery" ? "recover-email" : "setup-email",
+            );
+            setMessage((e as Error).message);
+          } finally {
+            session.access_token = "";
+            session.refresh_token = "";
+            setBusy(false);
+          }
+        } else
+          setMessage(
+            entry.error ||
+              (entry.flow === "login"
+                ? "Sign in with your JNotes email and password."
+                : "Use the email invited to JNotes. We’ll email you a link. There is no numeric code to enter."),
+          );
       })
       .catch((e) => setMessage(e.message));
     return () => {
@@ -109,21 +173,86 @@ function App() {
       window.removeEventListener("keydown", touch);
     };
   }, [cloud]);
+  function finishLogin() {
+    cloud?.completeSetup();
+    setPassword("");
+    setConfirmPassword("");
+    setCode("");
+    setSavedRecovery(false);
+    setMode("login");
+    setReady(true);
+    setMessage("");
+    activity.current = Date.now();
+    update((v) => v + 1);
+  }
+  function authMode(next: AuthMode) {
+    setMode(next);
+    setPassword("");
+    setConfirmPassword("");
+    setCode("");
+    setMessage(
+      next === "login"
+        ? "Sign in with your JNotes email and password."
+        : next === "recover"
+          ? "Use the recovery code you saved when you set up JNotes. It protects your encrypted notes."
+          : "Use the email invited to JNotes. We’ll email you a link. There is no numeric code to enter.",
+    );
+  }
+  useEffect(() => {
+    if (resendAfter <= 0) return;
+    const timer = window.setTimeout(
+      () => setResendAfter((n) => Math.max(0, n - 1)),
+      1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [resendAfter]);
   async function authenticate(e: React.FormEvent) {
     e.preventDefault();
-    if (!cloud) return;
+    if (!cloud || busy) return;
     setBusy(true);
-    setMessage("Unlocking your encrypted notebook…");
+    setMessage(
+      mode.endsWith("email")
+        ? "Sending your email link…"
+        : "Opening your encrypted notebook…",
+    );
     try {
-      if (recovery) await cloud.recover(email, otp, code, password);
+      if (mode === "setup-email" || mode === "recover-email") {
+        if (resendAfter > 0) return;
+        await cloud.sendEmailLink(
+          email,
+          mode === "recover-email",
+          window.location.origin + "/",
+        );
+        setResendAfter(60);
+        setMessage(
+          "Check your inbox and spam folder. Open the link in the newest email to continue here. No numeric code is needed. If no email arrives, check that you used the email invited to JNotes.",
+        );
+        return;
+      }
+      if (
+        (mode === "create" || mode === "recover") &&
+        password !== confirmPassword
+      )
+        throw Error(
+          "The passwords do not match. Enter the same password twice.",
+        );
+      if (mode === "create") {
+        const recoveryCode = await cloud.createNotebook(password);
+        if (recoveryCode) {
+          setCode(recoveryCode);
+          setPassword("");
+          setConfirmPassword("");
+          setMode("save-recovery");
+          setMessage(
+            "Your password is ready. Save this recovery code somewhere safe before continuing. You only need it if you forget your password.",
+          );
+          return;
+        }
+      } else if (mode === "recover")
+        await cloud.recoverFromEmail(code, password);
+      else if (mode === "unlock") await cloud.unlockFromEmail(password);
       else await cloud.login(email, password);
-      setPassword("");
-      setCode("");
-      setOtp("");
-      setReady(true);
-      setMessage("");
-      activity.current = Date.now();
-      update((v) => v + 1);
+      finishLogin();
     } catch (e) {
       setMessage((e as Error).message);
     } finally {
@@ -367,7 +496,18 @@ function App() {
       </article>
     );
   }
-  if (!ready)
+  if (!ready) {
+    const emailOnly = mode === "setup-email" || mode === "recover-email";
+    const newPassword = mode === "create" || mode === "recover";
+    const titles: Record<AuthMode, string> = {
+      login: "Welcome back.",
+      "setup-email": "Set up your password",
+      "recover-email": "Reset your password",
+      create: "Create your password",
+      unlock: "Open your notebook",
+      recover: "Reset your password",
+      "save-recovery": "Save your recovery code",
+    };
     return (
       <main className="login-page">
         <div className="brand">
@@ -375,93 +515,177 @@ function App() {
         </div>
         <section className="login-card">
           <p className="eyebrow">YOUR WORDS. YOUR SPACE.</p>
-          <h1>{recovery ? "Recover your notebook" : "Welcome back."}</h1>
-          <p className="muted">{message}</p>
-          <form onSubmit={authenticate}>
-            <label>
-              Email
-              <input
-                type="email"
-                autoComplete="username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </label>
-            {recovery && (
-              <>
+          <h1>{titles[mode]}</h1>
+          <p className="muted" role="status" aria-live="polite">
+            {message}
+          </p>
+          {mode === "save-recovery" ? (
+            <div className="save-recovery">
+              <pre className="recovery-code">{code}</pre>
+              <button
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(code)
+                    .then(() =>
+                      setMessage(
+                        "Recovery code copied. Keep it somewhere safe.",
+                      ),
+                    )
+                    .catch(() =>
+                      setMessage(
+                        "Select and copy the code above, or write it down.",
+                      ),
+                    )
+                }
+              >
+                Copy recovery code
+              </button>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={savedRecovery}
+                  onChange={(e) => setSavedRecovery(e.target.checked)}
+                />{" "}
+                I saved my recovery code
+              </label>
+              <button
+                className="primary"
+                disabled={!savedRecovery}
+                onClick={finishLogin}
+              >
+                Open my notebook
+              </button>
+            </div>
+          ) : (
+            <>
+              <form onSubmit={authenticate}>
+                {mode === "login" || emailOnly ? (
+                  <label>
+                    Email
+                    <input
+                      type="email"
+                      autoComplete="username"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      disabled={busy}
+                    />
+                  </label>
+                ) : (
+                  <p className="verified-email">{email}</p>
+                )}
+                {mode === "recover" && (
+                  <label>
+                    Saved recovery code
+                    <input
+                      value={code}
+                      autoComplete="off"
+                      onChange={(e) => setCode(e.target.value)}
+                      required
+                      disabled={busy}
+                    />
+                  </label>
+                )}
+                {!emailOnly && (
+                  <label>
+                    {newPassword
+                      ? "New JNotes password (12+ characters)"
+                      : "Password"}
+                    <input
+                      type="password"
+                      autoComplete={
+                        newPassword ? "new-password" : "current-password"
+                      }
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      minLength={newPassword ? 12 : 1}
+                      required
+                      disabled={busy}
+                    />
+                  </label>
+                )}
+                {newPassword && (
+                  <label>
+                    Confirm password
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      minLength={12}
+                      required
+                      disabled={busy}
+                    />
+                  </label>
+                )}
                 <button
-                  type="button"
-                  disabled={!cloud || busy}
-                  onClick={() =>
-                    void cloud
-                      ?.sendCode(email)
-                      .then(() =>
-                        setMessage(
-                          "If the account is approved, check your email for its verification code.",
-                        ),
-                      )
-                      .catch((e) => setMessage(e.message))
-                  }
+                  className="primary"
+                  disabled={!cloud || busy || (emailOnly && resendAfter > 0)}
                 >
-                  Send email verification code
+                  {busy
+                    ? "Please wait…"
+                    : emailOnly && resendAfter > 0
+                      ? `Send another link in ${resendAfter}s`
+                      : emailOnly
+                        ? mode === "setup-email"
+                          ? "Email me a setup link"
+                          : "Email me a reset link"
+                        : mode === "create"
+                          ? "Create my password"
+                          : mode === "recover"
+                            ? "Save new password and sign in"
+                            : "Sign in"}
                 </button>
-                <label>
-                  Email code
-                  <input
-                    value={otp}
-                    autoComplete="one-time-code"
-                    onChange={(e) => setOtp(e.target.value)}
-                    required
-                  />
-                </label>
-                <label>
-                  One-time recovery code
-                  <input
-                    value={code}
-                    autoComplete="off"
-                    onChange={(e) => setCode(e.target.value)}
-                    required
-                  />
-                </label>
-              </>
-            )}
-            <label>
-              {recovery ? "New password" : "Password"}
-              <input
-                type="password"
-                autoComplete={recovery ? "new-password" : "current-password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={recovery ? 12 : 1}
-                required
-              />
-            </label>
-            <button className="primary" disabled={!cloud || busy}>
-              {busy
-                ? "Unlocking…"
-                : recovery
-                  ? "Recover and sign in"
-                  : "Sign in"}
-            </button>
-          </form>
-          <button
-            className="text-button"
-            onClick={() => {
-              setRecovery(!recovery);
-              setPassword("");
-            }}
-          >
-            {recovery ? "Back to sign in" : "Forgot your password?"}
-          </button>
+              </form>
+              <div className="auth-links">
+                {mode === "login" && (
+                  <>
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() => authMode("setup-email")}
+                    >
+                      First time? Set up my password
+                    </button>
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() => authMode("recover-email")}
+                    >
+                      Forgot password?
+                    </button>
+                  </>
+                )}
+                {mode === "unlock" && (
+                  <button
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() => authMode("recover")}
+                  >
+                    Use my recovery code
+                  </button>
+                )}
+                {emailOnly && (
+                  <button
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() => authMode("login")}
+                  >
+                    Back to sign in
+                  </button>
+                )}
+              </div>
+            </>
+          )}
           <p className="footnote">
-            Set up Web Sync in JNotes on your Android phone first. Your phone
-            always works independently.
+            Set your JNotes password on this website once. Then use the same
+            email and password here and in your phone’s Settings → Web Sync.
           </p>
         </section>
         <p className="login-footer">Encrypted before it leaves your device.</p>
       </main>
     );
+  }
   return (
     <div className="workspace">
       <aside>

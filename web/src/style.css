@@ -698,3 +698,29 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+.auth-links,
+.save-recovery {
+  display: grid;
+  gap: 0.6rem;
+}
+.auth-links .text-button {
+  text-align: left;
+  padding-bottom: 0;
+}
+.recovery-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 1rem;
+  background: #e9ede5;
+  border-radius: 8px;
+}
+.save-recovery input[type="checkbox"] {
+  width: auto;
+  margin-right: 0.4rem;
+}
+.verified-email {
+  color: var(--green);
+  overflow-wrap: anywhere;
+  margin: 0;
+}

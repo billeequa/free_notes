@@ -6,9 +6,9 @@ The source is on `main`. GitHub also hosts the public mobile service directory. 
 
 ## 1. Prepare Supabase
 
-Use a dedicated development project. Apply the versioned SQL migration, disable public signup and anonymous login, invite only the approved email, and provision that exact auth user UUID as the singleton owner. Configure OTP email delivery and test it. The [operator guide](operator-guide.md) has the exact SQL and auth settings. A hosted login page alone does not finish this setup.
+Use a dedicated development project. Apply the versioned SQL migration, disable public signup and anonymous login, invite only the approved email, and provision that exact auth user UUID as the singleton owner. Configure email-link delivery and test it. The [operator guide](operator-guide.md) has the exact SQL and auth settings. A hosted login page alone does not finish this setup.
 
-From Supabase's project Connect/API settings, copy the project URL and its **publishable** key (`sb_publishable_...`). Do not use a secret/service-role key or database password. The current connected project is named `jnotes`; its API URL is `https://aqamrwetutembtrxrfso.supabase.co`. The database migration has been applied with approval; account activation and email settings remain to be configured. No personal notes were uploaded.
+From Supabase's project Connect/API settings, copy the project URL and its **publishable** key (`sb_publishable_...`). Do not use a secret/service-role key or database password. The current connected project is named `jnotes`; its API URL is `https://aqamrwetutembtrxrfso.supabase.co`. The database migration has been applied with approval. No personal notes were uploaded.
 
 ## 2. Connect GitHub to Cloudflare Pages
 
@@ -54,7 +54,7 @@ Add the custom domain in Pages **before** adding a CNAME. For a bare domain such
 
 ## 4. Use JNotes
 
-On Android, install the update signed with your existing app certificate. Open Settings → Web Sync, enter your email and password, verify the email, save the recovery code, and review and confirm the upload preview. JNotes discovers its website and backend automatically. Self-hosting operators can use Advanced to choose their own host.
+First open the website and choose **First time? Set up my password**. Open the emailed link, create your password and save the recovery code. On Android, install the update signed with your existing app certificate. Open Settings → Web Sync, sign in with that same email/password, then review and confirm the upload preview. JNotes discovers its website and backend automatically. Self-hosting operators can use Advanced to choose their own host.
 
 In any browser, open that same website and sign in with the same email and password. To-Do, Notes and Journal appear there. Wait for **Synced** after edits; keep a tab open and use Retry/Copy/Download if a save fails. Browser access requires internet. Android local editing continues when offline or sync is disabled.
 

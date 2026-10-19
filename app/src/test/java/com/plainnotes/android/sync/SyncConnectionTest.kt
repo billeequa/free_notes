@@ -132,7 +132,7 @@ class SyncConnectionTest {
             requests.add(exchange.requestMethod+" "+path)
             val response = when(path) {
                 "/rest/v1/public_bootstrap" -> org.json.JSONArray().put(bootstrap()).toString()
-                "/auth/v1/verify" -> JSONObject().put("user",JSONObject().put("id","owner")).put("access_token","synthetic-session").toString()
+                "/auth/v1/token" -> JSONObject().put("user",JSONObject().put("id","owner")).put("access_token","synthetic-session").toString()
                 "/rest/v1/rpc/get_vault" -> JSONObject().put("epoch","new").put("high_water",0).toString()
                 else -> "{}"
             }.toByteArray()
@@ -144,8 +144,8 @@ class SyncConnectionTest {
         store.setMeta("deployment",service.deployment); store.setMeta("owner","owner"); store.setMeta("key_id","original-key")
         val api = SyncApi(service.backend,service.publicKey,connection=service)
         try {
-            assertThrows(SyncApi.CloudChanged::class.java) { SyncRuntime.verify(context,api,"test@example.test","test-code","synthetic password") }
-            assertEquals(listOf("GET /rest/v1/public_bootstrap","POST /auth/v1/verify","POST /rest/v1/rpc/get_vault"),requests.toList())
+            assertThrows(SyncApi.CloudChanged::class.java) { SyncRuntime.signIn(context,api,"test@example.test","synthetic password") }
+            assertEquals(listOf("GET /rest/v1/public_bootstrap","POST /auth/v1/token","POST /rest/v1/rpc/get_vault"),requests.toList())
             assertEquals("original-key",store.meta("key_id"))
         } finally { server.stop(0) }
     }

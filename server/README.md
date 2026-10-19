@@ -27,4 +27,4 @@ node server/serve.mjs
 
 The server returns `/config.json` from public environment values at runtime. It validates keys and sends no-store, CSP, referrer, framing and other security headers. Admin/service-role keys are refused. The runtime has no npm dependencies. For Pages use `npm --prefix web run build:pages` with the same public environment variables. For Nginx provide the public JSON and equivalent headers; do not use Vite's development server for public hosting.
 
-Backend setup, invite/OTP templates, migrations, Android connection and restore instructions are in [the operator guide](../docs/web-sync/operator-guide.md). The server is not ready to accept real notes merely because its login page loads.
+Backend setup, invitation/email-link templates, migrations, Android connection and restore instructions are in [the operator guide](../docs/web-sync/operator-guide.md). The server is not ready to accept real notes merely because its login page loads.

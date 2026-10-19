@@ -26,6 +26,7 @@ class SyncApi(url: String, val publicKey: String, var session: JSONObject? = nul
             }?:""
             if(status !in 200..299){
                 if(response.contains("CLOUD_STATE_CHANGED")) throw CloudChanged()
+                if(path.startsWith("/auth/v1/token?grant_type=password") && (status==400||status==401))throw InvalidCredentials()
                 if(status==401||status==403||response.contains("NOT_AUTHORIZED"))throw AuthRequired()
                 throw IOException("Cloud request failed (HTTP $status). Phone files are safe.")
             }
@@ -34,11 +35,11 @@ class SyncApi(url: String, val publicKey: String, var session: JSONObject? = nul
     }
     fun bootstrap(): JSONObject = JSONArray(request("/rest/v1/public_bootstrap?select=*",authorized=false)).getJSONObject(0)
     fun signIn(email: String, auth: String): JSONObject = JSONObject(request("/auth/v1/token?grant_type=password",JSONObject().put("email",email).put("password",auth),authorized=false)).also {session=it}
-    fun sendCode(email: String) {request("/auth/v1/otp",JSONObject().put("email",email).put("create_user",false),authorized=false)}
-    fun verifyCode(email: String, token: String): JSONObject = JSONObject(request("/auth/v1/verify",JSONObject().put("email",email).put("token",token).put("type","email"),authorized=false)).also {session=it}
     fun refresh(): JSONObject = JSONObject(request("/auth/v1/token?grant_type=refresh_token",JSONObject().put("refresh_token",session!!.getString("refresh_token")),authorized=false)).also {session=it}
     fun rpc(name: String, args: JSONObject = JSONObject()): String = request("/rest/v1/rpc/$name",args)
     fun vault(): JSONObject = JSONObject(rpc("get_vault"))
+    class InvalidCredentials : IOException("Email or password is incorrect. First time? Tap Set up my password on the website below.")
+    class SetupRequired : IOException("Finish setting up your password on the website first, then sign in here.")
     class CloudChanged : IOException("Cloud state changed — repair required. Phone files are safe.")
     class AuthRequired : IOException("Account recovery needed. Phone files are still readable and editable.")
 }

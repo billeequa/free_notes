@@ -95,61 +95,40 @@ object SyncRuntime {
     }
     private fun linkedDeployment(c: Context) = if(c.getDatabasePath("web-sync.db").exists()) store(c).meta("deployment") else ""
     data class Setup(val api: SyncApi,val bootstrap: JSONObject,val owner: String,val keyId: String,val key: ByteArray,val vault: JSONObject,var recoveryCode: String?)
-    fun begin(c: Context,email: String,customWeb: String? = SyncConnection.customWebsite(c)): SyncApi {
-        val prepared=SyncConnection.prepare(c,linkedDeployment(c),customWeb)
-        return prepared.api.also {it.sendCode(email.trim())}
-    }
-    fun verify(c: Context,api: SyncApi,email: String,otp: String,password: String,recoveryInput: String = ""): Setup {
-        require(password.length>=12){"Use at least 12 characters"}
-        val b=api.bootstrap()
-        val expected=linkedDeployment(c)
+    fun accountWebsite(c: Context,customWeb: String? = SyncConnection.customWebsite(c)): String =
+        SyncConnection.prepare(c,linkedDeployment(c),customWeb).service.web
+
+    fun signIn(c: Context,email: String,password: String,customWeb: String? = SyncConnection.customWebsite(c)): Setup =
+        signIn(c,SyncConnection.prepare(c,linkedDeployment(c),customWeb).api,email,password)
+
+    /** Normal sign-in never sends email, changes a password, or rotates the recovery code. */
+    internal fun signIn(c: Context,api: SyncApi,email: String,password: String): Setup {
+        val b=api.bootstrap();val expected=linkedDeployment(c)
         if(b.getString("deployment_id")!=api.connection!!.deployment || expected.isNotEmpty() && expected!=b.getString("deployment_id"))throw SyncConnection.ConfigurationChanged()
         val credentials=SyncCrypto.derive(password,b)
+        var key: ByteArray?=null
         try {
-            val session=api.verifyCode(email,otp);val owner=session.getJSONObject("user").getString("id")
+            val owner=api.signIn(email.trim(),credentials.auth).getJSONObject("user").getString("id")
             val state=api.vault();val prior=state.optJSONObject("vault")
             if(expected.isNotEmpty()) {
                 val previous=store(c)
                 if(owner!=previous.meta("owner") || prior?.optString("key_id")!=previous.meta("key_id"))throw SyncApi.CloudChanged()
             }
-            val keyId=prior?.getString("key_id") ?: UUID.randomUUID().toString()
-            val key: ByteArray
-            var recovery: String?=null
-            if(prior==null) {
-                key=SyncCrypto.random();recovery=SyncCrypto.recoveryCode()
-                val wrap=SyncCrypto.seal(credentials.wrap,keyId,key,SyncCrypto.vaultAAD(b.getString("deployment_id"),owner,keyId,"password"))
-                val rk=SyncCrypto.recoveryKey(recovery)
-                val recoveryEnvelope=try {SyncCrypto.seal(rk,keyId,key,SyncCrypto.vaultAAD(b.getString("deployment_id"),owner,keyId,"recovery"))}finally{rk.fill(0)}
-                // Set derived auth credential before publishing the envelope. No user files uploaded.
-                api.request("/auth/v1/user",JSONObject().put("password",credentials.auth),method="PUT")
-                api.rpc("create_vault",JSONObject().put("p_key_id",keyId).put("p_password_envelope",wrap).put("p_recovery_envelope",recoveryEnvelope))
-            } else {
-                val aad=SyncCrypto.vaultAAD(b.getString("deployment_id"),owner,keyId,"password")
-                key=try {SyncCrypto.open(credentials.wrap,prior.getJSONObject("password_envelope"),aad)}catch(e:Exception){
-                    val staged=prior.optJSONObject("staged_envelope")
-                    val stagedKey=staged?.let {runCatching {SyncCrypto.open(credentials.wrap,it,aad)}.getOrNull()}
-                    if(stagedKey!=null) {
-                        api.rpc("finish_password",JSONObject().put("p_transition_id",prior.getString("transition_id")));stagedKey
-                    }else {
-                        val recovered=if(recoveryInput.isNotBlank()) {
-                            val rk=SyncCrypto.recoveryKey(recoveryInput)
-                            try {SyncCrypto.open(rk,prior.getJSONObject("recovery_envelope"),SyncCrypto.vaultAAD(b.getString("deployment_id"),owner,keyId,"recovery"))}finally{rk.fill(0)}
-                        }else {
-                            val cached=runCatching {SyncSecrets(c).read()}.getOrNull() ?: throw SyncApi.AuthRequired()
-                            require(cached.getString("owner")==owner&&cached.getString("key_id")==keyId)
-                            SyncCrypto.unb64(cached.getString("key"))
-                        }
-                        val transition=prior.optString("transition_id").takeIf {it.isNotBlank()&&it!="null"} ?: UUID.randomUUID().toString()
-                        val wrapped=SyncCrypto.seal(credentials.wrap,keyId,recovered,aad)
-                        api.rpc("stage_password",JSONObject().put("p_transition_id",transition).put("p_envelope",wrapped))
-                        api.request("/auth/v1/user",JSONObject().put("password",credentials.auth),method="PUT")
-                        api.rpc("finish_password",JSONObject().put("p_transition_id",transition));recovered
-                    }
-                }
+            if(prior==null)throw SyncApi.SetupRequired()
+            val keyId=prior.getString("key_id")
+            val aad=SyncCrypto.vaultAAD(b.getString("deployment_id"),owner,keyId,"password")
+            var usedStaged=false
+            key=try {SyncCrypto.open(credentials.wrap,prior.getJSONObject("password_envelope"),aad)}catch(e:Exception) {
+                val staged=prior.optJSONObject("staged_envelope") ?: throw SyncApi.InvalidCredentials()
+                val opened=try {SyncCrypto.open(credentials.wrap,staged,aad)}catch(e:Exception){throw SyncApi.InvalidCredentials()}
+                usedStaged=true;opened
             }
-            if(recovery==null)recovery=SyncCrypto.recoveryCode()
-            return Setup(api,b,owner,keyId,key,api.vault(),recovery)
-        }finally{credentials.wrap.fill(0)}
+            require(key.size==32){"Invalid notebook key"}
+            // Finish an interrupted password change only after authenticating and opening its envelope.
+            if(usedStaged)api.rpc("finish_password",JSONObject().put("p_transition_id",prior.getString("transition_id")))
+            return Setup(api,b,owner,keyId,key,api.vault(),null)
+        }catch(e:Exception){key?.fill(0);api.session=null;throw e}
+        finally{credentials.wrap.fill(0)}
     }
     suspend fun enable(c: Context,setup: Setup,email: String) = workerMutex.withLock {
         val s=store(c)

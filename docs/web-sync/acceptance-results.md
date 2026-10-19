@@ -34,3 +34,9 @@ Reconciliation is bounded to 50 files/ten seconds per pass with a persisted curs
 ## Release boundary
 
 No signed APK release has been published. No frontend address has been verified live. Cloudflare GitHub access has been connected by the user; Pages project/build/environment configuration still needs verification. Follow [the live-address guide](cloudflare-pages.md) and [operator checklist](operator-guide.md) for the remaining setup and review. Existing Android local files remain authoritative and upload requires the actual phone's verified-backup/counts preview and explicit confirmation.
+
+## 1.5.3 authentication repair
+
+The browser now handles Supabase invitation, magic-link and recovery callbacks, removes their tokens from the URL, validates the live Auth user and notebook owner, and offers initial encrypted-notebook/password creation. Normal phone/browser sign-in uses the same derived authentication credential and never sends email or rotates recovery codes. Website recovery requires verified email and the saved recovery code. Numeric OTP onboarding was removed.
+
+Local HTTP gateway tests exercise the real Supabase client, full-cost KDF, email-link requests, first-time setup, normal login, wrong passwords, recovery, lost create acknowledgments, callback cleanup, owner denial and missing-key/history refusal. Android HTTP tests cover derived-password sign-in, missing setup, wrong credentials and preserved deployment/owner/key checks. Existing database and hosting suites remain required. Live Cloudflare deployment and signed release are verified separately; the owner's password entry and mailbox remain private and are not automated.

@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { assertCloudIdentity, mergeTask } from "../../protocol/merge";
+import { emailSendError } from "./authReturn";
 import {
   b64,
   checkBootstrap,
@@ -42,6 +43,14 @@ export class Cloud {
   key: Uint8Array = new Uint8Array();
   cursor = 0;
   private generation = 0;
+  private pendingSetup?: {
+    keyId: string;
+    code: string;
+    recoveryEnvelope: Envelope;
+  };
+  completeSetup() {
+    this.pendingSetup = undefined;
+  }
   device = crypto.randomUUID();
   entries = new Map<string, Entry>();
   conflicts = new Map<string, Conflict>();
@@ -89,6 +98,7 @@ export class Cloud {
         persistSession: false,
         autoRefreshToken: true,
         detectSessionInUrl: false,
+        flowType: "implicit",
       },
       global: {
         fetch: (url, init) =>
@@ -142,7 +152,9 @@ export class Cloud {
       high_water: number;
     }>("get_vault");
     if (!state.vault)
-      throw Error("Finish Web Sync setup on your Android phone first.");
+      throw Error(
+        "Your notebook setup is not finished. Choose Set up my password on this website.",
+      );
     this.vault = {
       ...state.vault,
       epoch: state.epoch,
@@ -153,11 +165,13 @@ export class Cloud {
     const keys = await derive(password, this.bootstrap);
     try {
       const { data, error } = await this.api.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password: keys.auth,
       });
       if (error || !data.user)
-        throw Error("Incorrect credentials or account unavailable.");
+        throw Error(
+          "Email or password is incorrect. First time? Choose Set up my password below.",
+        );
       this.owner = data.user.id;
       await this.loadVault();
       const aad = vaultAAD(
@@ -184,24 +198,173 @@ export class Cloud {
       keys.wrap.fill(0);
     }
   }
-  async sendCode(email: string) {
-    const { error } = await this.api.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
+  async sendEmailLink(email: string, recovery: boolean, redirectTo: string) {
+    const { error } = recovery
+      ? await this.api.auth.resetPasswordForEmail(email.trim(), { redirectTo })
+      : await this.api.auth.signInWithOtp({
+          email: email.trim(),
+          options: { shouldCreateUser: false, emailRedirectTo: redirectTo },
+        });
+    if (error) throw Error(emailSendError(error));
+  }
+  async acceptEmailLink(session: {
+    access_token: string;
+    refresh_token: string;
+  }) {
+    const { error } = await this.api.auth.setSession(session);
     if (error)
       throw Error(
-        "Recovery email could not be sent. Check your host SMTP configuration.",
+        "This email link has expired or was already used. Request a new link.",
       );
-  }
-  async recover(email: string, token: string, code: string, password: string) {
-    const { data, error } = await this.api.auth.verifyOtp({
-      email,
-      token,
-      type: "email",
-    });
-    if (error || !data.user) throw Error("Email verification failed.");
+    // Validate against Auth; URL/JWT claims alone never establish notebook ownership.
+    const { data, error: userError } = await this.api.auth.getUser();
+    if (userError || !data.user || !data.user.email_confirmed_at) {
+      await this.logout();
+      throw Error(
+        "Email verification could not be completed. Request a new link.",
+      );
+    }
     this.owner = data.user.id;
+    try {
+      const state = await this.rpc<{
+        vault: Vault | null;
+        epoch: string;
+        high_water: number;
+      }>("get_vault");
+      if (!state.vault && state.high_water !== 0)
+        throw Error(
+          "The cloud key is missing. Your existing notebook must be repaired; a new one will not be created over it.",
+        );
+      if (state.vault)
+        this.vault = {
+          ...state.vault,
+          epoch: state.epoch,
+          high_water: state.high_water,
+        };
+      return { email: data.user.email || "", hasNotebook: !!state.vault };
+    } catch (e) {
+      await this.logout();
+      throw e;
+    }
+  }
+  async createNotebook(password: string): Promise<string | null> {
+    if (password.length < 12) throw Error("Use at least 12 characters.");
+    const state = await this.rpc<{ vault: Vault | null; high_water: number }>(
+      "get_vault",
+    );
+    if (state.vault) {
+      await this.unlockFromEmail(password);
+      const pending = this.pendingSetup;
+      return pending &&
+        pending.keyId === state.vault.key_id &&
+        Object.entries(pending.recoveryEnvelope).every(
+          ([name, value]) =>
+            state.vault!.recovery_envelope[name as keyof Envelope] === value,
+        )
+        ? pending.code
+        : null;
+    }
+    if (state.high_water !== 0)
+      throw Error(
+        "The cloud key is missing. Existing encrypted notes will not be replaced.",
+      );
+    const keys = await derive(password, this.bootstrap),
+      key = random(),
+      keyId = crypto.randomUUID(),
+      code = recoveryCode();
+    const aad = (purpose: string) =>
+      vaultAAD(this.bootstrap.deployment_id, this.owner, keyId, purpose);
+    try {
+      const passwordEnvelope = await seal(
+        keys.wrap,
+        keyId,
+        key,
+        aad("password"),
+      );
+      const rk = recoveryKey(code);
+      let recoveryEnvelope;
+      try {
+        recoveryEnvelope = await seal(rk, keyId, key, aad("recovery"));
+      } finally {
+        rk.fill(0);
+      }
+      // Keep this attempt in memory until the user confirms saving its recovery code.
+      // Retrying after a lost create/read response must display the same code.
+      this.pendingSetup = { keyId, code, recoveryEnvelope };
+      const { error } = await this.api.auth.updateUser({ password: keys.auth });
+      if (error)
+        throw Error(
+          "Your password could not be saved. Keep this page open and try again.",
+        );
+      try {
+        await this.rpc("create_vault", {
+          p_key_id: keyId,
+          p_password_envelope: passwordEnvelope,
+          p_recovery_envelope: recoveryEnvelope,
+        });
+      } catch (error) {
+        // A lost reply may follow a successful create. Accept only this exact key/envelope.
+        await this.loadVault();
+        if (
+          this.vault.key_id !== keyId ||
+          Object.entries(recoveryEnvelope).some(
+            ([name, value]) =>
+              this.vault.recovery_envelope[name as keyof Envelope] !== value,
+          )
+        )
+          throw error;
+      }
+      await this.loadVault();
+      this.key = await open(
+        keys.wrap,
+        this.vault.password_envelope,
+        aad("password"),
+      );
+      if (this.key.length !== 32) throw Error("Invalid notebook key");
+      await this.refresh();
+      return code;
+    } catch (error) {
+      this.key.fill(0);
+      this.key = new Uint8Array();
+      throw error;
+    } finally {
+      keys.wrap.fill(0);
+      key.fill(0);
+    }
+  }
+  async unlockFromEmail(password: string) {
+    const keys = await derive(password, this.bootstrap);
+    try {
+      await this.loadVault();
+      const aad = vaultAAD(
+        this.bootstrap.deployment_id,
+        this.owner,
+        this.vault.key_id,
+        "password",
+      );
+      try {
+        this.key = await open(keys.wrap, this.vault.password_envelope, aad);
+      } catch {
+        if (!this.vault.staged_envelope)
+          throw Error(
+            "That is not your JNotes password. Try again or use your recovery code.",
+          );
+        this.key = await open(keys.wrap, this.vault.staged_envelope, aad);
+        await this.rpc("finish_password", {
+          p_transition_id: this.vault.transition_id,
+        });
+      }
+      if (this.key.length !== 32) throw Error("Invalid notebook key");
+      await this.refresh();
+    } catch (e) {
+      this.key.fill(0);
+      this.key = new Uint8Array();
+      throw e;
+    } finally {
+      keys.wrap.fill(0);
+    }
+  }
+  async recoverFromEmail(code: string, password: string) {
     await this.loadVault();
     const rk = recoveryKey(code);
     try {
@@ -215,11 +378,21 @@ export class Cloud {
           "recovery",
         ),
       );
+    } catch {
+      throw Error(
+        "That recovery code is incorrect. Check the code you saved during setup.",
+      );
     } finally {
       rk.fill(0);
     }
-    await this.changePassword(password);
-    await this.refresh();
+    try {
+      await this.changePassword(password);
+      await this.refresh();
+    } catch (e) {
+      this.key.fill(0);
+      this.key = new Uint8Array();
+      throw e;
+    }
   }
   async changePassword(password: string) {
     if (password.length < 12) throw Error("Use at least 12 characters.");
@@ -515,7 +688,10 @@ export class Cloud {
   }
   async logout(global = false) {
     this.generation++;
+    this.completeSetup();
     this.key.fill(0);
+    this.key = new Uint8Array();
+    this.owner = "";
     this.entries.clear();
     this.pending.clear();
     this.conflicts.clear();

@@ -44,6 +44,7 @@ fun WebsiteSettings() {
 fun WebSyncSettings() {
     val context=LocalContext.current.applicationContext
     val scope=rememberCoroutineScope()
+    val uriHandler=LocalUriHandler.current
     val prefs=remember {SyncRuntime.prefs(context)}
     var expanded by remember {mutableStateOf(false)}
     var enabled by remember {mutableStateOf(SyncRuntime.enabled(context))}
@@ -52,9 +53,6 @@ fun WebSyncSettings() {
     var customWeb by remember {mutableStateOf(SyncConnection.customWebsite(context).orEmpty())}
     var email by remember {mutableStateOf(prefs.getString("email","")!!)}
     var password by remember {mutableStateOf("")}
-    var otp by remember {mutableStateOf("")}
-    var recoveryInput by remember {mutableStateOf("")}
-    var api by remember {mutableStateOf<SyncApi?>(null)}
     var setup by remember {mutableStateOf<SyncRuntime.Setup?>(null)}
     var preview by remember {mutableStateOf("")}
     var counts by remember {mutableStateOf(0)}
@@ -73,7 +71,7 @@ fun WebSyncSettings() {
             delay(1500)
         }
     }
-    fun run(block:suspend()->Unit) {scope.launch {busy=true;error=null;try{block()}catch(e:Exception){error=e.message ?: "Sync setup paused. Phone files are safe."}finally{busy=false}}}
+    fun run(block:suspend()->Unit) {scope.launch {busy=true;error=null;try{block()}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(e:Exception){error=e.message ?: "Sync setup paused. Phone files are safe."}finally{busy=false}}}
     Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Text("Web Sync",style=MaterialTheme.typography.titleMedium)
         Text(status,style=MaterialTheme.typography.bodyMedium)
@@ -89,7 +87,7 @@ fun WebSyncSettings() {
                 }
                 Text("Disabling sync keeps every phone file and the cloud copy. Recovery or reconnecting also never deletes local files.",style=MaterialTheme.typography.bodySmall)
                 OutlinedButton(enabled=!busy,onClick={run{val path=withContext(Dispatchers.IO){NotesRepository(context).backupForSync()};status="Verified local backup: $path"}}){Text("Export verified phone backup")}
-                TextButton(enabled=!busy,onClick={SyncRuntime.disable(context);enabled=false;api=null;setup=null}){Text("Recover or reconnect account")}
+                TextButton(enabled=!busy,onClick={SyncRuntime.disable(context);enabled=false;setup=null}){Text("Sign in again")}
                 if(status.contains("repair",ignoreCase=true)||status.contains("Cloud state changed",ignoreCase=true)) {
                     Text("Repair keeps phone files, backs up both local content and sync evidence, and retains differing cloud versions as conflicts. Type REPAIR to explicitly approve a new cloud baseline.",style=MaterialTheme.typography.bodySmall)
                     OutlinedTextField(repairText,{repairText=it},label={Text("Repair confirmation")},modifier=Modifier.fillMaxWidth())
@@ -99,27 +97,26 @@ fun WebSyncSettings() {
                     OutlinedButton(onClick={comparison=conflict}){Text("Resolve: "+conflict.getJSONObject("local").optString("title","Untitled"))}
                 }
             } else if(setup==null) {
-                Text("JNotes connects automatically. Use your email and password.",style=MaterialTheme.typography.bodySmall)
-                OutlinedTextField(email,{email=it},enabled=!busy&&api==null,label={Text("Email")},modifier=Modifier.fillMaxWidth(),singleLine=true)
-                OutlinedTextField(password,{password=it},label={Text("Password (12+ characters)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth(),singleLine=true)
-                if(api==null) {
-                    TextButton(enabled=!busy,onClick={useCustom=!useCustom}) {Text(if(useCustom) "Use JNotes connection" else "Advanced: self-hosted connection")}
-                    if(useCustom) OutlinedTextField(customWeb,{customWeb=it},label={Text("Self-hosted website (HTTPS)")},modifier=Modifier.fillMaxWidth(),singleLine=true,enabled=!busy)
-                }
-                Button(enabled=!busy&&email.isNotBlank()&&(!useCustom||customWeb.isNotBlank()),onClick={run{api=withContext(Dispatchers.IO){SyncRuntime.begin(context,email,if(useCustom)customWeb else null)}}}){Text("Send email verification code")}
-                if(api!=null) {
-                    TextButton(enabled=!busy,onClick={api=null;otp=""}){Text("Change email or connection")}
-                    OutlinedTextField(otp,{otp=it},label={Text("Email verification code")},modifier=Modifier.fillMaxWidth(),singleLine=true)
-                    OutlinedTextField(recoveryInput,{recoveryInput=it},label={Text("Recovery code (only if recovering)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
-                    Button(enabled=!busy&&password.length>=12&&otp.isNotBlank(),onClick={run{
-                        val prepared=withContext(Dispatchers.IO){SyncRuntime.verify(context,api!!,email.trim(),otp.trim(),password,recoveryInput)}
-                        setup=prepared;password="";otp="";recoveryInput=""
-                        preview=withContext(Dispatchers.IO){
-                            val repo=NotesRepository(context);val docs=repo.listActiveNotes();val trash=repo.listTrashedNotes();val tasks=repo.loadTodos()
-                            val bytes=docs.sumOf {n->repo.loadEditableNote(n.documentUri.toString())?.let{it.title.toByteArray().size+it.body.toByteArray().size}?.toLong() ?: 0L}
-                            "${tasks.size} tasks · ${docs.count{it.category==NoteCategory.NOTES}} notes · ${docs.count{it.category==NoteCategory.JOURNAL}} journal entries · ${trash.size} trashed documents\nApproximately ${bytes/1024} KiB of document text, plus tasks and metadata.\nCloud destination: $email\nExisting cloud revisions: ${prepared.vault.getLong("high_water")}"
-                        }
-                    }}){Text("Verify and preview")}
+                Text("Already set your JNotes password? Sign in below with the same email and password you use on the website.",style=MaterialTheme.typography.bodySmall)
+                OutlinedTextField(email,{email=it},enabled=!busy,label={Text("Email")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                OutlinedTextField(password,{password=it},enabled=!busy,label={Text("Password")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth(),singleLine=true)
+                TextButton(enabled=!busy,onClick={useCustom=!useCustom}) {Text(if(useCustom) "Use JNotes connection" else "Advanced: self-hosted connection")}
+                if(useCustom) OutlinedTextField(customWeb,{customWeb=it},label={Text("Self-hosted website (HTTPS)")},modifier=Modifier.fillMaxWidth(),singleLine=true,enabled=!busy)
+                Button(enabled=!busy&&email.isNotBlank()&&password.isNotEmpty()&&(!useCustom||customWeb.isNotBlank()),onClick={run{
+                    val prepared=withContext(Dispatchers.IO){SyncRuntime.signIn(context,email,password,if(useCustom)customWeb else null)}
+                    setup=prepared;password=""
+                    preview=withContext(Dispatchers.IO){
+                        val repo=NotesRepository(context);val docs=repo.listActiveNotes();val trash=repo.listTrashedNotes();val tasks=repo.loadTodos()
+                        val bytes=docs.sumOf {n->repo.loadEditableNote(n.documentUri.toString())?.let{it.title.toByteArray().size+it.body.toByteArray().size}?.toLong() ?: 0L}
+                        "${tasks.size} tasks · ${docs.count{it.category==NoteCategory.NOTES}} notes · ${docs.count{it.category==NoteCategory.JOURNAL}} journal entries · ${trash.size} trashed documents\nApproximately ${bytes/1024} KiB of document text, plus tasks and metadata.\nCloud destination: $email\nExisting cloud revisions: ${prepared.vault.getLong("high_water")}"
+                    }
+                }}){Text("Sign in and preview sync")}
+                Text("First time? Create your password on the website once. An email link opens the setup page; no numeric code is needed. Then return here to sign in.",style=MaterialTheme.typography.bodySmall)
+                for((label,fragment) in listOf("Set up my password on the website" to "setup","Forgot password?" to "recover")) {
+                    TextButton(enabled=!busy&&(!useCustom||customWeb.isNotBlank()),onClick={run{
+                        val website=withContext(Dispatchers.IO){SyncRuntime.accountWebsite(context,if(useCustom)customWeb else null)}
+                        uriHandler.openUri(website.trimEnd('/')+"/#"+fragment)
+                    }}){Text(label)}
                 }
             } else {
                 val prepared=setup!!

@@ -1,7 +1,7 @@
 # Recovery and safe disconnect
 
 - **Internet/server/account trouble:** continue using the phone normally. Reads, local writes, local search, exports and EPUB do not require sync. Open Settings → Web Sync for a nonblocking status. Disable sync at any time; it cancels jobs without deleting files or the cloud copy.
-- **Forgot password, still have this phone:** choose Recover or reconnect account, verify ownership by the emailed OTP, and enter a new password. If the phone still has its Keystore-wrapped vault key, it can rewrap it after email verification without the old password. Save the replacement recovery code before enabling again.
+- **Forgot password:** on the website choose **Forgot password?**, request and open the emailed reset link, enter the recovery code saved during setup, then choose a new password. Sign in again on the phone with the new password. The recovery code and notebook key stay the same; existing phone files are preserved.
 - **New phone/browser, forgot password:** use verified email plus the saved recovery code, choose a new password, and complete staged reset. The code alone cannot authenticate to the account. Web recovery is built into the login page; do not use a generic provider password form.
 - **Lost Keystore/session:** cloud sync needs verification and the password or recovery code. The existing phone files are not encrypted by this mechanism and remain readable.
 - **Lost email and every cloud decryption credential:** cloud recovery can be impossible. Export existing readable phone content first. Provision a new approved identity/vault only through a separately reviewed reset. The current implementation refuses to silently reuse a different cloud owner/key with an old sidecar.
