@@ -118,23 +118,24 @@ struct TaskCard: View {
                     Button { if payload.done { reopen() } else if pending { cancel() } else { reveal(true) } } label: {
                         Image(systemName: payload.done || pending ? "checkmark.square.fill" : "square").font(.system(size: 24)).foregroundStyle(palette.primary.opacity(payload.done || pending ? 0.65 : 1)).frame(width: 36, height: 40)
                     }.accessibilityLabel(payload.done ? "Reopen: \(payload.title)" : pending ? "Cancel completion: \(payload.title)" : "Show completion confirmation: \(payload.title)")
-                    Text(([payload.symbols, payload.title].filter { !$0.isEmpty }).joined(separator: " ")).font(.system(size: 18 * scale, weight: .medium)).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(([payload.symbols, payload.title].filter { !$0.isEmpty }).joined(separator: " ")).font(.system(size: 18 * scale, weight: .medium)).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).onTapGesture(perform: tapCard)
                     Menu { actions } label: { Image(systemName: "ellipsis").rotationEffect(.degrees(90)).frame(width: 36, height: 40) }
                 }
-                if !payload.description.isEmpty { Text(payload.description).font(.system(size: 16 * scale)).padding(.horizontal, 8) }
-                Text(payload.completed_at.map { "Completed: " + Dates.display($0) } ?? "Added: " + Dates.display(payload.created_at)).font(.system(size: 11 * scale)).foregroundStyle(palette.secondary).padding(.horizontal, 8)
+                if !payload.description.isEmpty { Text(payload.description).font(.system(size: 16 * scale)).padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).onTapGesture(perform: tapCard) }
+                Text(payload.completed_at.map { "Completed: " + Dates.display($0) } ?? "Added: " + Dates.display(payload.created_at)).font(.system(size: 11 * scale)).foregroundStyle(palette.secondary).padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).onTapGesture(perform: tapCard)
             }
             .padding(.horizontal, 8).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
             .background(palette.taskColor(payload.flags, done: payload.done), in: RoundedRectangle(cornerRadius: 12))
             .foregroundStyle(payload.done ? palette.secondary : (payload.flags.isEmpty ? palette.text : Color(hex: palette.dark ? 0xF4F4F5 : 0x202124)))
             .contentShape(Rectangle()).offset(x: offset)
-            .onTapGesture { if pending { cancel() } else { edit() } }.contextMenu { actions }
+            .contextMenu { actions }
             .simultaneousGesture(DragGesture(minimumDistance: 20).onChanged { value in if !payload.done && abs(value.translation.width) > abs(value.translation.height) { drag = value.translation.width } }.onEnded { value in
                 guard abs(value.translation.width) > abs(value.translation.height) else { drag = 0; return }
                 if pending { cancel() } else if value.translation.width > 64 { onNotes() } else if value.translation.width < -32 && !payload.done { reveal(false) }; drag = 0
             })
         }.clipShape(RoundedRectangle(cornerRadius: 12))
     }
+    private func tapCard() { if pending { cancel() } else { edit() } }
     @ViewBuilder private var actions: some View {
         Button("Edit", action: edit)
         ForEach(TaskFlag.allCases) { flag in Button("\(payload.flags.contains(flag.rawValue) ? "✓ " : "")Mark \(flag.label) \(flag.emoji)") { toggleFlag(flag) } }
