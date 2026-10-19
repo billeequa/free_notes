@@ -1,0 +1,20 @@
+project_id = "jnotes-development"
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 100
+[db]
+port = 54322
+major_version = 17
+[auth]
+enabled = true
+site_url = "http://localhost:8080"
+additional_redirect_urls = ["http://localhost:8080"]
+enable_signup = false
+enable_anonymous_sign_ins = false
+jwt_expiry = 900
+[auth.email]
+enable_signup = false
+enable_confirmations = true

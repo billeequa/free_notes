@@ -792,6 +792,8 @@ private fun SettingsScreen(
                 }
                 BooksFoldersSettings()
                 HorizontalDivider()
+                WebSyncSettings()
+                HorizontalDivider()
                 UpdateSettings()
                 Button(onClick = onOpenTrash, modifier = Modifier.fillMaxWidth()) {
                     Text("Open trash")

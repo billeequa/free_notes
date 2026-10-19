@@ -1,0 +1,4 @@
+-- ADMIN ONLY: run once after inviting the verified account. Supply an actual UUID;
+-- never permit a client to choose the owner. Public signup must remain disabled.
+-- insert into jnotes_private.owner_account(owner_uid) values ('YOUR-INVITED-AUTH-USER-UUID');
+-- select owner_uid,epoch,high_water from jnotes_private.owner_account;

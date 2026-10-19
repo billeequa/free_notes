@@ -1,0 +1,131 @@
+package com.plainnotes.android.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import com.plainnotes.android.data.NotesRepository
+import com.plainnotes.android.model.NoteCategory
+import com.plainnotes.android.sync.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+
+/** Dormant unless opened. KDF/network/preview never run during normal app startup. */
+@Composable
+fun WebSyncSettings() {
+    val context=LocalContext.current.applicationContext
+    val scope=rememberCoroutineScope()
+    val prefs=remember {SyncRuntime.prefs(context)}
+    var expanded by remember {mutableStateOf(false)}
+    var enabled by remember {mutableStateOf(SyncRuntime.enabled(context))}
+    var status by remember {mutableStateOf(prefs.getString("status","Saved on phone — sync disabled")!!)}
+    var web by remember {mutableStateOf(prefs.getString("web","")!!)}
+    var email by remember {mutableStateOf(prefs.getString("email","")!!)}
+    var password by remember {mutableStateOf("")}
+    var otp by remember {mutableStateOf("")}
+    var recoveryInput by remember {mutableStateOf("")}
+    var api by remember {mutableStateOf<SyncApi?>(null)}
+    var setup by remember {mutableStateOf<SyncRuntime.Setup?>(null)}
+    var preview by remember {mutableStateOf("")}
+    var counts by remember {mutableStateOf(0)}
+    var confirmation by remember {mutableStateOf("")}
+    var approved by remember {mutableStateOf(false)}
+    var busy by remember {mutableStateOf(false)}
+    var error by remember {mutableStateOf<String?>(null)}
+    var conflicts by remember {mutableStateOf<List<JSONObject>>(emptyList())}
+    var repairText by remember {mutableStateOf("")}
+    var comparison by remember {mutableStateOf<JSONObject?>(null)}
+    DisposableEffect(Unit) { onDispose {setup?.key?.fill(0);setup?.recoveryCode=null} }
+    LaunchedEffect(expanded,enabled) {
+        if(expanded)while(true) {
+            status=prefs.getString("status","Saved on phone")!!
+            if(enabled){counts=withContext(Dispatchers.IO){SyncRuntime.store(context).count()};conflicts=withContext(Dispatchers.IO){SyncRuntime.store(context).conflicts()}}
+            delay(1500)
+        }
+    }
+    fun run(block:suspend()->Unit) {scope.launch {busy=true;error=null;try{block()}catch(e:Exception){error=e.message ?: "Sync setup paused. Phone files are safe."}finally{busy=false}}}
+    Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Text("Web Sync",style=MaterialTheme.typography.titleMedium)
+        Text(status,style=MaterialTheme.typography.bodyMedium)
+        Text("Optional. Your phone's notes and tasks remain readable and editable without an account or server.",style=MaterialTheme.typography.bodySmall)
+        if(!expanded)TextButton(onClick={expanded=true}){Text(if(enabled)"Manage Web Sync" else "Set up Web Sync")}
+        if(expanded) {
+            if(enabled) {
+                Text(email)
+                Text("Pending: $counts · Last sync: "+prefs.getLong("last_sync",0).let {if(it==0L)"Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))})
+                if(web.isNotBlank())SelectionContainer{Text("Browser address: $web")}
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Button(onClick={SyncRuntime.schedule(context)},enabled=!busy){Text("Sync now")}
+                    OutlinedButton(onClick={SyncRuntime.disable(context);enabled=false},enabled=!busy){Text("Disable sync")}
+                }
+                Text("Disabling sync keeps every phone file and the cloud copy. Recovery or reconnecting also never deletes local files.",style=MaterialTheme.typography.bodySmall)
+                OutlinedButton(enabled=!busy,onClick={run{val path=withContext(Dispatchers.IO){NotesRepository(context).backupForSync()};status="Verified local backup: $path"}}){Text("Export verified phone backup")}
+                TextButton(enabled=!busy,onClick={SyncRuntime.disable(context);enabled=false;api=null;setup=null}){Text("Recover or reconnect account")}
+                if(status.contains("repair",ignoreCase=true)||status.contains("Cloud state changed",ignoreCase=true)) {
+                    Text("Repair keeps phone files, backs up both local content and sync evidence, and retains differing cloud versions as conflicts. Type REPAIR to explicitly approve a new cloud baseline.",style=MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(repairText,{repairText=it},label={Text("Repair confirmation")},modifier=Modifier.fillMaxWidth())
+                    Button(enabled=!busy&&repairText=="REPAIR",onClick={run{withContext(Dispatchers.IO){SyncRuntime.repair(context)};repairText=""}}){Text("Back up and repair cloud link")}
+                }
+                conflicts.forEach { conflict ->
+                    OutlinedButton(onClick={comparison=conflict}){Text("Resolve: "+conflict.getJSONObject("local").optString("title","Untitled"))}
+                }
+            } else if(setup==null) {
+                OutlinedTextField(web,{web=it},label={Text("Web app address (HTTPS)")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                OutlinedTextField(email,{email=it},label={Text("Approved email")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                OutlinedTextField(password,{password=it},label={Text("Password (12+ characters)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth(),singleLine=true)
+                Button(enabled=!busy&&web.isNotBlank()&&email.isNotBlank(),onClick={run{api=withContext(Dispatchers.IO){SyncRuntime.begin(web,email)}}}){Text("Send email verification code")}
+                if(api!=null) {
+                    OutlinedTextField(otp,{otp=it},label={Text("Email verification code")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                    OutlinedTextField(recoveryInput,{recoveryInput=it},label={Text("Recovery code (only if recovering)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())
+                    Button(enabled=!busy&&password.length>=12&&otp.isNotBlank(),onClick={run{
+                        val prepared=withContext(Dispatchers.IO){SyncRuntime.verify(context,api!!,email,otp,password,recoveryInput)}
+                        setup=prepared;password="";otp="";recoveryInput=""
+                        preview=withContext(Dispatchers.IO){
+                            val repo=NotesRepository(context);val docs=repo.listActiveNotes();val trash=repo.listTrashedNotes();val tasks=repo.loadTodos()
+                            val bytes=docs.sumOf {n->repo.loadEditableNote(n.documentUri.toString())?.let{it.title.toByteArray().size+it.body.toByteArray().size}?.toLong() ?: 0L}
+                            "${tasks.size} tasks · ${docs.count{it.category==NoteCategory.NOTES}} notes · ${docs.count{it.category==NoteCategory.JOURNAL}} journal entries · ${trash.size} trashed documents\nApproximately ${bytes/1024} KiB of document text, plus tasks and metadata.\nCloud destination: $email\nExisting cloud revisions: ${prepared.vault.getLong("high_water")}"
+                        }
+                    }}){Text("Verify and preview")}
+                }
+            } else {
+                val prepared=setup!!
+                Text("Initial upload preview",style=MaterialTheme.typography.titleSmall)
+                Text(preview)
+                Text("All tasks, notes and journals will be encrypted before upload. A verified local backup is created first. Existing cloud records are preserved; simultaneous edits need a reviewed merge.",style=MaterialTheme.typography.bodySmall)
+                prepared.recoveryCode?.let {code ->
+                    Text("Save this recovery code now. It is displayed only during setup. If reconnecting, this code replaces the old code only after you confirm.")
+                    SelectionContainer {Text(code,style=MaterialTheme.typography.bodyMedium)}
+                    OutlinedTextField(confirmation,{confirmation=it.uppercase()},label={Text("Type the final 8 characters to confirm saved")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                }
+                Row {
+                    Checkbox(approved,{approved=it})
+                    Text("I approve the complete encrypted upload/merge after the local backup.",modifier=Modifier.padding(top=12.dp))
+                }
+                Button(enabled=!busy&&approved&&(prepared.recoveryCode==null||confirmation==prepared.recoveryCode!!.takeLast(8)),onClick={run{
+                    withContext(Dispatchers.IO){SyncRuntime.enable(context,prepared,web,email)}
+                    setup=null;enabled=true;confirmation="";approved=false
+                }}){Text("Back up phone and enable sync")}
+                TextButton(onClick={prepared.key.fill(0);prepared.recoveryCode=null;setup=null;approved=false;confirmation=""},enabled=!busy){Text("Cancel setup")}
+            }
+            if(busy)LinearProgressIndicator(modifier=Modifier.fillMaxWidth())
+            error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+        }
+    }
+    comparison?.let {conflict ->
+        AlertDialog(onDismissRequest={comparison=null},title={Text("Resolve sync conflict")},text={
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("Both versions are preserved until you choose.")
+                Text("Phone: "+conflict.getJSONObject("local").let {it.optString("title")+"\n"+it.optString("body").ifEmpty {it.optString("description")}}.take(1500))
+                Text("Cloud: "+conflict.getJSONObject("remote_content").let {it.optString("title")+"\n"+it.optString("body").ifEmpty {it.optString("description")}}.take(1500))
+                for((choice,label)in listOf("local" to "Keep Phone","remote" to "Keep Web","both" to "Save Both"))Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.resolve(context,conflict.getString("id"),choice)};comparison=null}},enabled=!busy){Text(label)}
+            }
+        },confirmButton={TextButton(onClick={comparison=null}){Text("Later")}})
+    }
+}

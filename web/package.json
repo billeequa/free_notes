@@ -1,0 +1,28 @@
+{
+  "name": "jnotes-web",
+  "version": "1.5.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "build:pages": "npm run build && node ../server/build-pages.mjs",
+    "test": "node --import tsx --test ../protocol/*.test.ts",
+    "test:sql": "node --import tsx ../supabase/tests/run.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.0.1",
+    "@supabase/supabase-js": "2.57.4",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.10",
+    "@types/node": "24.5.2",
+    "@types/react": "19.1.16",
+    "@types/react-dom": "19.1.9",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vite": "7.3.7"
+  }
+}

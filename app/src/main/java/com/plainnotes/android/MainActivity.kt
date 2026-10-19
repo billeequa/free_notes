@@ -19,6 +19,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             Surface(modifier = Modifier.fillMaxSize()) {
                 PlainNotesApp()
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    androidx.compose.runtime.withFrameNanos { }
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        if(com.plainnotes.android.sync.SyncRuntime.enabled(applicationContext))
+                            com.plainnotes.android.sync.SyncRuntime.schedule(applicationContext,periodic=true)
+                    }
+                }
             }
         }
     }

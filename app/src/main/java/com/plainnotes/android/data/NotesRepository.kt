@@ -33,8 +33,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class NotesRepository(private val context: Context) {
-    private val storageMutex = Mutex()
-    private val todoStorageMutex = Mutex()
     private val documents = DocumentDirectory(context.contentResolver)
     private var index: NoteIndex? = null
     private var indexReady = false
@@ -59,6 +57,11 @@ class NotesRepository(private val context: Context) {
 
     suspend fun persistRootFolder(uri: Uri) {
         withContext(Dispatchers.IO) {
+            val current=settingsRepository.rootFolderUri.first()
+            if(current!=null&&current!=uri&&com.plainnotes.android.sync.SyncRuntime.enabled(context)) {
+                com.plainnotes.android.sync.SyncRuntime.disable(context)
+                com.plainnotes.android.sync.SyncRuntime.status(context,"Saved on phone — folder changed; review the cloud link before reconnecting")
+            }
             contentResolver.takePersistableUriPermission(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
@@ -161,6 +164,7 @@ class NotesRepository(private val context: Context) {
         val stamp = runCatching { documents.stat(note.documentUri) }.getOrNull()
         cached.put(IndexedNote(note.toDocument(), stamp?.modifiedMillis, stamp?.size, System.currentTimeMillis()))
         publishIndex()
+        com.plainnotes.android.sync.SyncRuntime.captureNote(context, note, previousUri)
     }
 
     suspend fun createBlankNote(): EditableNote = withContext(Dispatchers.IO) {
@@ -295,13 +299,16 @@ class NotesRepository(private val context: Context) {
             )
             target.previousFileToDelete?.let { previous ->
                 if (previous.exists()) {
-                    previous.delete()
+                    val removed=previous.delete()
+                    if(!removed&&com.plainnotes.android.sync.SyncRuntime.enabled(context))throw IOException("New copy saved; previous note needs move recovery")
                 }
             }
             // writeText already verified the complete bytes. Do not reread them twice more.
             val saved = updated.copy(documentUri = target.file.uri, filename = target.file.name ?: updated.filename,
                 createdAt = updated.createdAt.withNano(0), modifiedAt = updated.modifiedAt.withNano(0))
             if (!saved.isTrashed) recordNote(saved, note.documentUri)
+            else com.plainnotes.android.sync.SyncRuntime.captureNote(context,saved,note.documentUri)
+            com.plainnotes.android.sync.SyncRuntime.completeLocalMove(context,saved.documentUri)
             saved
         }
     }
@@ -320,12 +327,17 @@ class NotesRepository(private val context: Context) {
                 ?: throw IOException("The note could not be found.")
             val trash = requireTrashDirectory()
             indexFor(requireRootDirectory().uri)
-            copyDocumentToDirectory(source, trash)
+            val original = readEditableNote(source, false) ?: throw IOException("Cannot read note before trashing")
+            val moved = copyDocumentToDirectory(source, trash) {name ->
+                com.plainnotes.android.sync.SyncRuntime.prepareLocalMove(context,original,original.copy(isTrashed=true),name,readRecoverableText(source.uri))
+            }
             if (!source.delete()) {
                 throw IOException("The note could not be deleted after copying to trash.")
             }
             index!!.remove(uriString)
             publishIndex()
+            com.plainnotes.android.sync.SyncRuntime.captureNote(context, original.copy(documentUri=moved.uri, filename=moved.name ?: original.filename, isTrashed=true), original.documentUri)
+            com.plainnotes.android.sync.SyncRuntime.completeLocalMove(context,moved.uri)
             }
         }
     }
@@ -342,11 +354,14 @@ class NotesRepository(private val context: Context) {
             if (date != null && index!!.doubleXDates.containsKey(date)) {
                 throw IOException("A Double X Day note already exists for $date.")
             }
-            val restored = copyDocumentToDirectory(source, root)
+            val restored = copyDocumentToDirectory(source, root) {name ->
+                com.plainnotes.android.sync.SyncRuntime.prepareLocalMove(context,original,original.copy(isTrashed=false),name,readRecoverableText(source.uri))
+            }
             if (!source.delete()) {
                 throw IOException("The trashed note could not be removed after restoring it.")
             }
-            recordNote(original.copy(documentUri = restored.uri, filename = restored.name ?: original.filename, isTrashed = false))
+            recordNote(original.copy(documentUri = restored.uri, filename = restored.name ?: original.filename, isTrashed = false), original.documentUri)
+            com.plainnotes.android.sync.SyncRuntime.completeLocalMove(context,restored.uri)
             }
         }
     }
@@ -423,11 +438,190 @@ class NotesRepository(private val context: Context) {
     suspend fun saveTodos(items: List<TodoItem>) = withContext(Dispatchers.IO) {
         todoStorageMutex.withLock {
             val root = requireRootDirectory()
+            val before=if(com.plainnotes.android.sync.SyncRuntime.enabled(context))readTodos(root) else null
             val file = safeFindFile(root, TodoFileParser.FILE_NAME)
                 ?: root.createFile(TEXT_MIME_TYPE, TodoFileParser.FILE_NAME)
                 ?: throw IOException("Unable to create the to-do list.")
             writeText(file.uri, TodoFileParser.serialize(items))
+            com.plainnotes.android.sync.SyncRuntime.captureTodos(context, items,previous=before)
         }
+    }
+
+    /** Enabled-sync reconciliation only. Missing files are quarantined, never inferred as deletes. */
+    suspend fun reconcileForSync(store: com.plainnotes.android.sync.SyncStore,limit: Int = 50): Boolean = withContext(Dispatchers.IO) {
+        val root=requireRootDirectory()
+        val containers=listOf(root to false)+listOfNotNull(trashDirectoryOrNull()?.let{it to true})
+        val entries=containers.flatMap {(directory,trashed)->documents.children(directory).filter{it.isNote}.map{it to trashed}}.sortedBy{it.first.uri.toString()}
+        val previous=store.meta("reconcile_after")
+        val remaining=entries.filter{it.first.uri.toString()>previous}
+        val deadline=System.currentTimeMillis()+10000
+        var processed=0
+        for((listed,trashed)in remaining) {
+            if(processed>=limit||System.currentTimeMillis()>deadline)break
+            storageMutex.withLock {
+                val entry=documents.stat(listed.uri)
+                if(entry!=null) {
+                    val local="note:${entry.uri}"
+                    val stamp="${entry.modifiedMillis}:${entry.size}"
+                    val checked=store.meta("checked:$local","0").toLong()
+                    val known=store.byLocal(local)
+                    val stable=entry.modifiedMillis!=null&&entry.modifiedMillis>0&&entry.size!=null
+                    if(known==null||!stable||store.meta("stamp:$local")!=stamp||System.currentTimeMillis()-checked>30*60*1000||hasRecovery(entry.uri)) {
+                        val note=readEditableNote(entry,trashed) ?: throw IOException("A document cannot be read; sync paused.")
+                        val id=store.idFor(local);store.capture(local,com.plainnotes.android.sync.SyncPayload.note(note,id),trashed)
+                        store.setMeta("stamp:$local",stamp);store.setMeta("checked:$local",System.currentTimeMillis().toString())
+                    }
+                }
+            }
+            store.setMeta("reconcile_after",listed.uri.toString());processed++
+        }
+        val complete=processed==remaining.size
+        if(complete) {
+            store.setMeta("reconcile_after","")
+            // A missing path is never a cloud deletion. Recheck current paths to avoid a concurrent rename false alarm.
+            val present=entries.mapTo(hashSetOf()){ "note:${it.first.uri}" }
+            for(local in store.linkedNotes())if(local !in present)storageMutex.withLock {
+                val current=store.byLocal(local)
+                if(current!=null&&!current.deleted)require(DocumentFile.fromSingleUri(context,Uri.parse(local.removePrefix("note:")))?.exists()==true){"A linked file moved outside JNotes. Repair required; no deletion sent."}
+            }
+        }
+        todoStorageMutex.withLock {com.plainnotes.android.sync.SyncRuntime.captureTodosStrict(store,readTodos(root))}
+        complete
+    }
+
+    /** Existing formats, both mutexes held, streamed and verified before first upload. */
+    suspend fun backupForSync(): String = withContext(Dispatchers.IO) {
+        storageMutex.withLock { todoStorageMutex.withLock {
+            val root = requireRootDirectory()
+            val output = requireExportsDirectory().createFile(ZIP_MIME_TYPE, "pre-web-sync-${exportStampFormatter.format(now())}.zip")
+                ?: throw IOException("Unable to create local backup; upload has not started.")
+            val checks = linkedMapOf<String, ByteArray>()
+            ZipOutputStream(BufferedOutputStream(contentResolver.openOutputStream(output.uri) ?: throw IOException("Cannot open backup"))).use { zip ->
+                val containers = listOf(root to "") + listOfNotNull(trashDirectoryOrNull()?.let { it to "Trash/" })
+                for ((dir, prefix) in containers) for (entry in documents.children(dir).filter { it.isNote || it.name == TodoFileParser.FILE_NAME }) {
+                    val name = prefix + entry.name
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    zip.putNextEntry(ZipEntry(name))
+                    contentResolver.openInputStream(entry.uri)?.use { raw -> java.security.DigestInputStream(raw,digest).use { it.copyTo(zip) } }
+                        ?: throw IOException("Cannot read a file for backup")
+                    zip.closeEntry(); checks[name] = digest.digest()
+                }
+                if(com.plainnotes.android.sync.SyncRuntime.prefs(context).contains("url")) {
+                    val sidecar=com.plainnotes.android.sync.SyncRuntime.store(context).exportSidecar().toString().toByteArray(Charsets.UTF_8)
+                    zip.putNextEntry(ZipEntry("jnotes-sync-recovery.json"));zip.write(sidecar);zip.closeEntry()
+                    checks["jnotes-sync-recovery.json"]=java.security.MessageDigest.getInstance("SHA-256").digest(sidecar)
+                }
+            }
+            var verified = 0
+            java.util.zip.ZipInputStream(contentResolver.openInputStream(output.uri) ?: throw IOException("Cannot verify backup")).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    val buffer = ByteArray(8192)
+                    while (true) { val count=zip.read(buffer); if(count<0)break; digest.update(buffer,0,count) }
+                    require(checks[entry.name]?.contentEquals(digest.digest()) == true) { "Backup verification failed" }
+                    verified++;zip.closeEntry()
+                }
+            }
+            require(verified == checks.size) { "Incomplete backup" }
+            output.uri.toString()
+        } }
+    }
+
+    /** Return actual before/after under the repository lock when sync may update tasks. */
+    suspend fun changeTodosWithSync(change: (List<TodoItem>) -> List<TodoItem>): Pair<List<TodoItem>,List<TodoItem>> = withContext(Dispatchers.IO) {
+        todoStorageMutex.withLock {
+            val root=requireRootDirectory();val before=readTodos(root);val updated=change(before)
+            val file=safeFindFile(root,TodoFileParser.FILE_NAME) ?: root.createFile(TEXT_MIME_TYPE,TodoFileParser.FILE_NAME) ?: throw IOException("Unable to save tasks")
+            writeText(file.uri,TodoFileParser.serialize(updated))
+            com.plainnotes.android.sync.SyncRuntime.captureTodos(context,updated,previous=before)
+            before to updated
+        }
+    }
+
+    /** CAS against current phone bytes; never apply a pull over a newer local edit. */
+    suspend fun applySyncRecord(payload: org.json.JSONObject, deleted: Boolean, expected: String?, local: String?, store: com.plainnotes.android.sync.SyncStore): String? = withContext(Dispatchers.IO) {
+        val id=payload.getString("id")
+        com.plainnotes.android.sync.SyncPayload.validate(payload,id)
+        if(payload.getString("kind")=="task") {
+            todoStorageMutex.withLock {
+                val root=requireRootDirectory();val items=readTodos(root);val existing=items.find { it.id==id }
+                val actual=existing?.let { com.plainnotes.android.sync.SyncPayload.canonical(com.plainnotes.android.sync.SyncPayload.task(it)) }
+                if(actual!=expected) return@withContext null
+                val updated=items.filter {it.id!=id}.toMutableList()
+                if(!deleted) updated.add(com.plainnotes.android.sync.SyncPayload.todo(payload))
+                updated.sortBy {it.addedAt.toInstant()}
+                val file=safeFindFile(root,TodoFileParser.FILE_NAME) ?: root.createFile(TEXT_MIME_TYPE,TodoFileParser.FILE_NAME) ?: throw IOException("Unable to apply task")
+                writeText(file.uri,TodoFileParser.serialize(updated));"task:$id"
+            }
+        } else storageMutex.withLock {
+            val uri=local?.takeIf {it.startsWith("note:")}?.removePrefix("note:")
+            if(uri!=null && com.plainnotes.android.sync.SyncRuntime.editing.contains(uri)) return@withContext null
+            val source=uri?.let { DocumentFile.fromSingleUri(context,Uri.parse(it)) }?.takeIf {it.exists()}
+            val current=source?.let {readEditableNote(it,store.record(id)?.deleted ?: false)}
+            val actual=current?.let {com.plainnotes.android.sync.SyncPayload.canonical(com.plainnotes.android.sync.SyncPayload.note(it,id))}
+            if(actual!=expected && !(source==null && store.record(id)?.let {it.deleted&&it.baseDeleted}==true)) return@withContext null
+            ensureIndex(requireRootDirectory())
+            val proposed=com.plainnotes.android.sync.SyncPayload.editable(payload,source?.uri ?: Uri.EMPTY,source?.name ?: "",deleted)
+            if(source!=null && store.record(id)?.deleted==deleted) {
+                // Reuse the current file: existing pending-writes provides crash-safe verified replacement.
+                writeText(source.uri,NoteFileParser.serialize(proposed.textContent()))
+                publishSyncedNote(proposed,uri)
+                return@withContext "note:${source.uri}"
+            }
+            val intent=org.json.JSONObject().put("id",id).put("payload",payload).put("deleted",deleted)
+                .put("source",uri ?: org.json.JSONObject.NULL).put("expected",expected ?: org.json.JSONObject.NULL)
+                .put("target_name","jnotes-sync-$id-${if(deleted) "trash" else "active"}.txt")
+            store.setApply(id,intent) // Durable before creating or moving any provider file.
+            finishSyncIntent(intent,store,requireRootDirectory(),requireTrashDirectory())
+        }
+    }
+
+    /** Complete a previously authenticated apply after process death before normal reconciliation. */
+    suspend fun recoverSyncApplies(store: com.plainnotes.android.sync.SyncStore) = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val pending=store.applies()
+            if(pending.isNotEmpty()) {
+                val root=requireRootDirectory();val trash=requireTrashDirectory();ensureIndex(root)
+                for(intent in pending)finishSyncIntent(intent,store,root,trash)
+            }
+        }
+    }
+    private fun publishSyncedNote(note: EditableNote,previous: String?) {
+        if(previous!=null)index!!.remove(previous)
+        if(!note.isTrashed) {
+            val stamp=runCatching {documents.stat(note.documentUri)}.getOrNull()
+            index!!.put(IndexedNote(note.toDocument(),stamp?.modifiedMillis,stamp?.size,System.currentTimeMillis()))
+        }
+        publishIndex()
+    }
+    private fun finishSyncIntent(intent: org.json.JSONObject,store: com.plainnotes.android.sync.SyncStore,root: DocumentFile,trash: DocumentFile): String {
+        val id=intent.getString("id");val payload=intent.getJSONObject("payload");val deleted=intent.getBoolean("deleted")
+        val sourceUri=if(intent.isNull("source"))null else intent.getString("source")
+        val expected=if(intent.isNull("expected"))null else intent.getString("expected")
+        require(sourceUri==null || sourceUri !in com.plainnotes.android.sync.SyncRuntime.editing){"Finish editing before cloud apply"}
+        val source=sourceUri?.let {DocumentFile.fromSingleUri(context,Uri.parse(it))}?.takeIf{it.exists()}
+        source?.let {
+            val note=readEditableNote(it,store.record(id)?.deleted ?: false) ?: throw IOException("Cannot recover cloud apply")
+            require(com.plainnotes.android.sync.SyncPayload.canonical(com.plainnotes.android.sync.SyncPayload.note(note,id))==expected){"Local file changed during interrupted sync. Repair required."}
+        }
+        val directory=if(deleted)trash else root
+        val name=intent.getString("target_name")
+        val target=safeFindFile(directory,name) ?: directory.createFile(TEXT_MIME_TYPE,name) ?: throw IOException("Cannot finish synced document")
+        val local="note:${target.uri}"
+        val mapped=store.byLocal(local)
+        require(mapped==null || mapped.id==id){"Interrupted target has independent local edits. Repair required."}
+        val current=store.record(id)
+        val canonical=com.plainnotes.android.sync.SyncPayload.canonical(payload)
+        require(current==null || current.content=="{}" || current.content==expected || current.content==intent.optString("record_content") || current.content==canonical){"Local edit during interrupted apply. Repair required."}
+        val proposed=com.plainnotes.android.sync.SyncPayload.editable(payload,target.uri,target.name ?: name,deleted)
+        store.bind(id,local)
+        writeText(target.uri,if(intent.has("raw_text"))intent.getString("raw_text") else NoteFileParser.serialize(proposed.textContent()))
+        if(source!=null && source.uri!=target.uri && !source.delete())throw IOException("Synced copy verified; source move needs repair")
+        val verified=readEditableNote(target,deleted) ?: throw IOException("Cannot verify recovered note metadata")
+        publishSyncedNote(verified,sourceUri)
+        store.clearApply(id)
+        return local
     }
 
     private suspend fun rootDirectoryOrNull(): DocumentFile? {
@@ -549,11 +743,12 @@ class NotesRepository(private val context: Context) {
         recovery.delete()
     }
 
-    private fun copyDocumentToDirectory(source: DocumentFile, targetDirectory: DocumentFile): DocumentFile {
+    private fun copyDocumentToDirectory(source: DocumentFile, targetDirectory: DocumentFile, beforeCreate: ((String)->Unit)? = null): DocumentFile {
         val targetName = uniqueFileName(
             directory = targetDirectory,
             preferredName = source.name ?: "note.txt",
         )
+        if(com.plainnotes.android.sync.SyncRuntime.enabled(context)) beforeCreate?.invoke(targetName)
         val target = targetDirectory.createFile(source.type ?: TEXT_MIME_TYPE, targetName)
             ?: throw IOException("Unable to copy ${source.name}.")
 
@@ -566,7 +761,10 @@ class NotesRepository(private val context: Context) {
                 sourceStream.copyTo(targetStream)
             }
         }
-
+        if(com.plainnotes.android.sync.SyncRuntime.enabled(context)) {
+            val sourceText=readRecoverableText(source.uri) ?: throw IOException("Cannot verify copied note")
+            require(readText(target.uri)==sourceText){"Copied note verification failed; original retained"}
+        }
         return target
     }
 
@@ -599,6 +797,9 @@ class NotesRepository(private val context: Context) {
             return SaveTarget(file)
         }
 
+        if(com.plainnotes.android.sync.SyncRuntime.enabled(context)) runCatching {
+            readEditableNote(file,note.isTrashed)?.let {original -> com.plainnotes.android.sync.SyncRuntime.prepareLocalMove(context,original,note,desiredName)}
+        }
         val replacement = directory.createFile(TEXT_MIME_TYPE, desiredName)
             ?: throw IOException("Unable to create the renamed note file.")
         return SaveTarget(
@@ -651,6 +852,8 @@ class NotesRepository(private val context: Context) {
     private fun now(): OffsetDateTime = OffsetDateTime.now(ZoneId.systemDefault())
 
     companion object {
+        private val storageMutex = Mutex()
+        private val todoStorageMutex = Mutex()
         private const val TEXT_MIME_TYPE = "text/plain"
         private const val ZIP_MIME_TYPE = "application/zip"
         private const val TRASH_DIRECTORY_NAME = "Trash"
