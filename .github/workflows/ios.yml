@@ -23,14 +23,27 @@ jobs:
         run: xcodebuild -version
       - name: Build for iPhone Simulator without signing
         run: xcodebuild -project ios/JNotes.xcodeproj -scheme JNotes -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath ios-build CODE_SIGNING_ALLOWED=NO build-for-testing
-      - name: Run compatibility and persistence tests
+      - name: Boot simulator and smoke-test the actual app
+        timeout-minutes: 6
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for a in d["devices"].values() for x in a if x["name"].startswith("iPhone")))')
-          xcodebuild -project ios/JNotes.xcodeproj -scheme JNotes -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath ios-build -resultBundlePath ios-test-results CODE_SIGNING_ALLOWED=NO test-without-building
+          echo "IOS_SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl install "$DEVICE_ID" ios-build/Build/Products/Debug-iphonesimulator/JNotes.app
+          xcrun simctl launch "$DEVICE_ID" com.billeequa.jnotes.ios
+          sleep 3
+          xcrun simctl io "$DEVICE_ID" screenshot ios-home.png
+          xcrun simctl terminate "$DEVICE_ID" com.billeequa.jnotes.ios
+      - name: Run compatibility and persistence tests
+        timeout-minutes: 8
+        run: |
+          xcodebuild -project ios/JNotes.xcodeproj -scheme JNotes -configuration Debug -destination "platform=iOS Simulator,id=$IOS_SIMULATOR_ID" -derivedDataPath ios-build -resultBundlePath ios-test-results -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -maximum-test-execution-time-allowance 180 CODE_SIGNING_ALLOWED=NO test-without-building
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ios-build-and-tests
           path: |
+            ios-home.png
             ios-test-results.xcresult
             ios-build/Logs/Build
