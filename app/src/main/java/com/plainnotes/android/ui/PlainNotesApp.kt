@@ -83,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -689,6 +690,8 @@ private fun SettingsScreen(
     onShowReader: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val uriHandler = LocalUriHandler.current
+    var websiteError by remember { mutableStateOf<String?>(null) }
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -792,6 +795,18 @@ private fun SettingsScreen(
                 }
                 BooksFoldersSettings()
                 HorizontalDivider()
+                Text("Website", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = {
+                    websiteError = null
+                    try {
+                        uriHandler.openUri("https://j4notes.pages.dev")
+                    } catch (_: android.content.ActivityNotFoundException) {
+                        websiteError = "No browser is available. Open the address above on another device."
+                    }
+                }) {
+                    Text("https://j4notes.pages.dev")
+                }
+                websiteError?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 WebSyncSettings()
                 HorizontalDivider()
                 UpdateSettings()
@@ -1378,8 +1393,8 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("To Do shows a lighter checked box while completion awaits the green confirmation. Tap the original box again to cancel.")
-            Text("While writing a note, Android Back hides the keyboard and cursor so you can scroll and read. Tap text to keep writing; press Back again to return to the list. Applies to Notes, Journal, and Double X Day.")
+            Text("Your website address, https://j4notes.pages.dev, is now shown directly in Settings. Tap it to open the website in your browser.")
+            Text("Optional encrypted Web Sync connects your To-Do, Notes and Journal to the browser. Set it up in Settings → Web Sync, save your recovery code, and review the upload preview. Sync stays off until you enable it; phone files remain available offline.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

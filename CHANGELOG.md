@@ -1,3 +1,7 @@
+# 1.5.1
+
+Show the clickable website address, https://j4notes.pages.dev, directly in phone Settings above Web Sync.
+
 # 1.4.5
 
 Add combinable urgent, important, and long-term to-do flags, distinct theme-aware task colors retained after completion, and creation/edit checkboxes. Preserve legacy black flags and task history while upgrading the to-do file format.
