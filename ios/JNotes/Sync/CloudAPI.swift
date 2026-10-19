@@ -31,9 +31,9 @@ final class CloudAPI {
     let service: ServiceDirectory
     var session: AuthSession?
     private let transport: URLSession
-    init(_ service: ServiceDirectory, session: AuthSession? = nil) {
+    init(_ service: ServiceDirectory, session: AuthSession? = nil, configuration: URLSessionConfiguration? = nil) {
         self.service = service; self.session = session
-        let config = URLSessionConfiguration.ephemeral; config.timeoutIntervalForRequest = 20; config.timeoutIntervalForResource = 40; config.httpShouldSetCookies = false; config.urlCache = nil
+        let config = configuration ?? URLSessionConfiguration.ephemeral; config.timeoutIntervalForRequest = 20; config.timeoutIntervalForResource = 40; config.httpShouldSetCookies = false; config.urlCache = nil
         transport = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }
     func request<T: Decodable>(_ path: String, body: [String: Any]? = nil, authorized: Bool = true, as type: T.Type = T.self) async throws -> T {
@@ -51,7 +51,7 @@ final class CloudAPI {
             if http.statusCode == 401 || http.statusCode == 403 { throw JNotesError("Sign in again in Web Sync. Local notes remain available.") }
             throw JNotesError("Cloud request failed (HTTP \(http.statusCode)). Local files are safe.")
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        return try JSONDecoder().decode(T.self, from: data.isEmpty ? Data("null".utf8) : data)
     }
     func rpc<T: Decodable>(_ name: String, _ args: [String: Any] = [:], as type: T.Type = T.self) async throws -> T { try await request("/rest/v1/rpc/" + name, body: args, as: type) }
     func bootstrap() async throws -> Bootstrap {

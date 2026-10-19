@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 extension Color {
     init(hex: UInt32) { self.init(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1) }
@@ -29,8 +30,12 @@ struct Palette {
         let light: [UInt32] = [0xE6E2DA,0xFFD9DE,0xFFEDAB,0xFFDDC0,0xD9E8FF,0xECDCF8,0xC8EFE9,0xDDEFCA]
         let night: [UInt32] = [0x343A35,0x672D35,0x574A1B,0x683C20,0x25456D,0x513466,0x20534F,0x36522C]
         let base = Color(hex: dark ? night[mask] : light[mask])
-        // Place a translucent neutral surface over the completed card in the view.
-        return base
+        guard done else { return base }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        var nr: CGFloat = 0, ng: CGFloat = 0, nb: CGFloat = 0, na: CGFloat = 0
+        UIColor(base).getRed(&r, green: &g, blue: &b, alpha: &a)
+        UIColor(surface).getRed(&nr, green: &ng, blue: &nb, alpha: &na)
+        return Color(red: Double(r * 0.75 + nr * 0.25), green: Double(g * 0.75 + ng * 0.25), blue: Double(b * 0.75 + nb * 0.25))
     }
 }
 struct Card: ViewModifier {

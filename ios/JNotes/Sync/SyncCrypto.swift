@@ -33,7 +33,7 @@ enum SyncCrypto {
         let status = intermediate.withUnsafeMutableBytes { out in bytes.withUnsafeBytes { pwd in salt.withUnsafeBytes { s in
             argon2id_hash_raw(3, 65536, 1, pwd.baseAddress, bytes.count, s.baseAddress, salt.count, out.baseAddress, 32)
         } } }
-        guard status == ARGON2_OK else { throw JNotesError("Password key derivation failed") }
+        guard status == 0 /* ARGON2_OK */ else { throw JNotesError("Password key derivation failed") }
         return (expand(intermediate, label: "auth").base64EncodedString(), expand(intermediate, label: "wrap"))
     }
     static func aad(_ deployment: String, _ owner: String, _ key: String, _ id: String, _ revision: Int64, _ deleted: Bool, vault: Bool = false) throws -> Data {

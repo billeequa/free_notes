@@ -23,6 +23,12 @@ struct SyncDisk: Codable {
     var service: ServiceDirectory?
 }
 struct SyncSecret: Codable { let key: Data; var session: AuthSession; let origin: String, owner: String, keyID: String }
+struct SyncSecretStorage {
+    let read: () throws -> Data?
+    let save: (Data) throws -> Void
+    let clear: () -> Void
+    static var keychain: SyncSecretStorage { SyncSecretStorage(read: Keychain.read, save: Keychain.save, clear: Keychain.clear) }
+}
 struct RPCVoid: Decodable { init(from decoder: Decoder) throws {} }
 struct HistoryRevision: Decodable, Identifiable {
     let id: String; let revision: Int64, seq: Int64; let envelope: Envelope; let deleted: Bool
@@ -34,7 +40,7 @@ struct HistoryRevision: Decodable, Identifiable {
     @Published var busy = false
     @Published var connected = false
     @Published var conflicts: [SyncConflict] = []
-    @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: "syncEnabled") } }
+    @Published var enabled: Bool { didSet { defaults.set(enabled, forKey: "syncEnabled") } }
     @Published var website = "https://j4notes.pages.dev"
     private var disk = SyncDisk()
     private var needsAnotherPass = false
@@ -42,17 +48,25 @@ struct HistoryRevision: Decodable, Identifiable {
     private weak var store: NotesStore?
     private var scheduled: Task<Void, Never>?
     private let diskURL: URL
-    init(store: NotesStore) {
-        self.store = store; enabled = UserDefaults.standard.bool(forKey: "syncEnabled")
+    private let defaults: UserDefaults
+    private let secrets: SyncSecretStorage
+    private let discover: (ServiceDirectory?) async throws -> ServiceDirectory
+    private let makeAPI: (ServiceDirectory, AuthSession?) -> CloudAPI
+    init(store: NotesStore, stateURL: URL? = nil, defaults: UserDefaults = .standard,
+         secrets: SyncSecretStorage = .keychain,
+         discover: @escaping (ServiceDirectory?) async throws -> ServiceDirectory = { try await CloudAPI.discover(cached: $0) },
+         makeAPI: @escaping (ServiceDirectory, AuthSession?) -> CloudAPI = { CloudAPI($0, session: $1) }) {
+        self.defaults = defaults; self.secrets = secrets; self.discover = discover; self.makeAPI = makeAPI
+        self.store = store; enabled = defaults.bool(forKey: "syncEnabled")
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        diskURL = support.appendingPathComponent("jnotes-sync-v1.json")
+        diskURL = stateURL ?? support.appendingPathComponent("jnotes-sync-v1.json")
         do {
-            try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: diskURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: diskURL.path) {
                 disk = try JSONDecoder().decode(SyncDisk.self, from: Data(contentsOf: diskURL))
                 guard disk.version == 1 else { throw JNotesError("Unsupported sync metadata") }
             }
-            connected = !disk.owner.isEmpty && UserDefaults.standard.bool(forKey: "syncHasSession")
+            connected = !disk.owner.isEmpty && defaults.bool(forKey: "syncHasSession")
             if let service = disk.service { website = service.web_url }
             conflicts = Array(disk.conflicts.values).sorted { $0.id < $1.id }
             status = enabled && connected ? "Saved on phone — pending sync" : "Sync is off"
@@ -77,8 +91,8 @@ struct HistoryRevision: Decodable, Identifiable {
         if let stateError { throw JNotesError(stateError) }
         guard let store, store.loaded, store.error == nil else { throw JNotesError("Choose a working notes folder first") }
         busy = true; defer { busy = false }
-        let service = try await CloudAPI.discover(cached: disk.service)
-        let api = CloudAPI(service); let bootstrap = try await api.bootstrap()
+        let service = try await discover(disk.service)
+        let api = makeAPI(service, nil); let bootstrap = try await api.bootstrap()
         // Argon2's 64 MiB work runs outside the main actor.
         var credentials = try await Task.detached(priority: .userInitiated) { try SyncCrypto.derive(password, bootstrap: bootstrap) }.value
         defer { credentials.wrap.resetBytes(in: credentials.wrap.indices) }
@@ -97,16 +111,16 @@ struct HistoryRevision: Decodable, Identifiable {
         }
         guard key.count == 32, disk.epoch.isEmpty || (disk.epoch == state.epoch && state.high_water >= disk.floor) else { throw JNotesError("Cloud state changed. Sync paused; local files are safe.") }
         let secret = SyncSecret(key: key, session: session, origin: service.supabase_url, owner: owner, keyID: vault.key_id)
-        try Keychain.save(JSONEncoder().encode(secret))
+        try secrets.save(JSONEncoder().encode(secret))
         disk.owner = owner; disk.deployment = service.deployment_id; disk.epoch = state.epoch; disk.keyID = vault.key_id
         disk.root = store.rootURL.standardizedFileURL.path; disk.service = service; try persist()
-        connected = true; UserDefaults.standard.set(true, forKey: "syncHasSession"); website = service.web_url
+        connected = true; defaults.set(true, forKey: "syncHasSession"); website = service.web_url
         status = "Connected — review first sync"
     }
     func start() async { enabled = true; await sync() }
     func disconnect() throws {
         guard !busy else { throw JNotesError("Wait for sync to finish") }
-        enabled = false; scheduled?.cancel(); Keychain.clear(); UserDefaults.standard.set(false, forKey: "syncHasSession")
+        enabled = false; scheduled?.cancel(); secrets.clear(); defaults.set(false, forKey: "syncHasSession")
         // Preserve cloud identities and conflicts. Reconnect can safely resume pending operations.
         connected = false; status = "Disconnected. All local files are available."; try persist()
     }
@@ -117,16 +131,16 @@ struct HistoryRevision: Decodable, Identifiable {
         defer { busy = false; if needsAnotherPass { schedule() } }
         do {
             guard disk.root == store.rootURL.standardizedFileURL.path else { throw JNotesError("Notes folder differs. Reconnect to sync this folder.") }
-            guard let data = try Keychain.read() else { throw JNotesError("Sign in again. Local notes are safe.") }
+            guard let data = try secrets.read() else { throw JNotesError("Sign in again. Local notes are safe.") }
             var secret = try JSONDecoder().decode(SyncSecret.self, from: data)
-            let service = try await CloudAPI.discover(cached: disk.service)
+            let service = try await discover(disk.service)
             guard service.supabase_url == secret.origin else { throw JNotesError("The service moved. Reconnect with your email and password. Files and pending edits are safe.") }
-            let api = CloudAPI(service, session: secret.session)
+            let api = makeAPI(service, secret.session)
             let bootstrap = try await api.bootstrap()
             guard bootstrap.deployment_id == disk.deployment else { throw JNotesError("Cloud identity changed. Sync paused.") }
             secret.session = try await api.refresh()
             guard secret.session.user.id.lowercased() == disk.owner, secret.owner == disk.owner, secret.keyID == disk.keyID else { throw JNotesError("Cloud account differs") }
-            try Keychain.save(JSONEncoder().encode(secret))
+            try secrets.save(JSONEncoder().encode(secret))
             let state: VaultState = try await api.rpc("get_vault")
             guard state.epoch == disk.epoch, state.high_water >= disk.floor, state.vault?.key_id == disk.keyID else { throw JNotesError("Cloud state changed. Repair required; local files are safe.") }
             disk.service = service; website = service.web_url
@@ -168,7 +182,7 @@ struct HistoryRevision: Decodable, Identifiable {
                 try await send(operation, api: api, key: secret.key)
             }
             let _: RPCVoid = try await api.rpc("ack_cursor", ["p_device_id": disk.device, "p_epoch": disk.epoch, "p_cursor": disk.cursor])
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastSync")
+            defaults.set(Date().timeIntervalSince1970, forKey: "lastSync")
             try persist()
             status = disk.conflicts.isEmpty ? "Synced" : "Conflict — action needed"
         } catch is CancellationError { status = "Saved on phone — sync paused" }
@@ -233,9 +247,9 @@ struct HistoryRevision: Decodable, Identifiable {
         disk.conflicts.removeValue(forKey: id); try persist(); schedule()
     }
     func history(_ id: String) async throws -> [(HistoryRevision, Payload)] {
-        guard let data = try Keychain.read(), let service = disk.service else { throw JNotesError("Sign in first") }
+        guard let data = try secrets.read(), let service = disk.service else { throw JNotesError("Sign in first") }
         var secret = try JSONDecoder().decode(SyncSecret.self, from: data)
-        let api = CloudAPI(service, session: secret.session); secret.session = try await api.refresh(); try Keychain.save(JSONEncoder().encode(secret))
+        let api = makeAPI(service, secret.session); secret.session = try await api.refresh(); try secrets.save(JSONEncoder().encode(secret))
         let revisions: [HistoryRevision] = try await api.rpc("get_history", ["p_id": id])
         return try revisions.map { h in
             let remote = RemoteRecord(id: h.id, revision: h.revision, seq: h.seq, envelope: h.envelope, deleted: h.deleted, op_id: nil)

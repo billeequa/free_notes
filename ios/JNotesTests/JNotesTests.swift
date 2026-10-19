@@ -108,6 +108,31 @@ final class JNotesTests: XCTestCase {
         let imported = NotesStore(root: other); await imported.load(); try imported.importFiles([zip])
         XCTAssertEqual(imported.tasks.count, 1); XCTAssertEqual(imported.documents(.note).first?.payload.body, note.body)
     }
+    @MainActor func testInterruptedRenameRecoversBeforeScanning() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NotesStore(root: root); await store.load()
+        var p = Payload.new(.note, title: "Before"); p.body = "Preserve my writing"; try store.save(p)
+        let old = store.documents(.note)[0].filename!
+        p.title = "After"; let name = FileFormats.filename(p)
+        let records = [LocalRecord(payload: p, filename: name)]
+        let tx = StoreTransaction(records: records, writes: [name: FileFormats.serializeNote(p)], removes: [old])
+        // Simulate termination after the durable journal but before the destination write.
+        try JSONEncoder().encode(tx).write(to: root.appendingPathComponent(".jnotes-ios-journal.json"))
+        let recovered = NotesStore(root: root); await recovered.load()
+        XCTAssertNil(recovered.error); XCTAssertEqual(recovered.documents(.note).count, 1)
+        XCTAssertEqual(recovered.documents(.note)[0].id, p.id); XCTAssertEqual(recovered.documents(.note)[0].payload.title, "After")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(old).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(".jnotes-ios-journal.json").path))
+    }
+    func testUnsafeLocalJournalCannotEscapeNotesFolder() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let tx = StoreTransaction(records: [], writes: ["../escape.txt": "bad"], removes: [])
+        try JSONEncoder().encode(tx).write(to: root.appendingPathComponent(".jnotes-ios-journal.json"))
+        XCTAssertThrowsError(try NotesStore.recoverTransaction(root))
+    }
     func testServiceConfigRejectsAdminKeysAndNonHTTPS() throws {
         let service = try ServiceDirectory.bundled()
         XCTAssertNoThrow(try service.validated())
