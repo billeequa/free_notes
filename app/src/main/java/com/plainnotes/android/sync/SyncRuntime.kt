@@ -77,14 +77,25 @@ object SyncRuntime {
         return changed
     }
     fun schedule(c: Context,periodic: Boolean=false,continuation: Boolean=false) {
-        if(!enabled(c))return
-        val work=WorkManager.getInstance(c.applicationContext)
-        val constraints=Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-        if(periodic)work.enqueueUniquePeriodicWork(PERIODIC,ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<SyncWorker>(15,TimeUnit.MINUTES).setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build())
-        work.enqueueUniqueWork(IMMEDIATE,if(continuation)ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<SyncWorker>().setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build())
+        if(!enabled(c)||SyncHealth.paused(c))return
+        SyncHealth.starting(c)
+        try {
+            val work=WorkManager.getInstance(c.applicationContext)
+            val constraints=Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            fun observe(operation: Operation) {
+                operation.result.addListener({
+                    try {operation.result.get();SyncHealth.started(c)}
+                    catch(e:Exception){SyncHealth.pause(c)}
+                },java.util.concurrent.Executor { it.run() })
+            }
+            if(periodic)observe(work.enqueueUniquePeriodicWork(PERIODIC,ExistingPeriodicWorkPolicy.KEEP,
+                PeriodicWorkRequestBuilder<SyncWorker>(15,TimeUnit.MINUTES).setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build()))
+            observe(work.enqueueUniqueWork(IMMEDIATE,if(continuation)ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<SyncWorker>().setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build()))
+        }catch(e:Exception){SyncHealth.pause(c);throw java.io.IOException(SyncHealth.MESSAGE,e)}
+        catch(e:LinkageError){SyncHealth.pause(c);throw java.io.IOException(SyncHealth.MESSAGE,e)}
     }
+    fun retry(c: Context) {SyncHealth.retry(c);schedule(c,periodic=true)}
     fun disable(c: Context) {
         prefs(c).edit().putBoolean("enabled",false).putString("status","Saved on phone — sync disabled").commit()
         // Initialize WorkManager only if sync has actually been configured.
@@ -139,8 +150,8 @@ object SyncRuntime {
         require(oldOwner.isEmpty() || oldOwner==setup.owner && s.meta("deployment")==setup.bootstrap.getString("deployment_id") && s.meta("key_id")==setup.keyId){"Previously linked cloud differs. A reviewed backup/reset is required. Phone files are unchanged."}
         // Fail before changing the saved setup or consuming its in-memory key.
         try {WorkManager.getInstance(c.applicationContext)}catch(e:Exception){
-            throw java.io.IOException("Background sync could not start. Your phone files are safe. Retry setup after installing the latest update.",e)
-        }
+            SyncHealth.pause(c);throw java.io.IOException(SyncHealth.MESSAGE,e)
+        }catch(e:LinkageError){SyncHealth.pause(c);throw java.io.IOException(SyncHealth.MESSAGE,e)}
         val backup=NotesRepository(c).backupForSync()
         setup.recoveryCode?.let { code ->
             val rk=SyncCrypto.recoveryKey(code)
@@ -158,6 +169,7 @@ object SyncRuntime {
         prefs(c).edit().putString("email",email.trim())
             .putString("backup",backup).commit()
         // Snapshot and outbox construction occur off the UI thread, after verified backup and consent.
+        SyncHealth.retry(c)
         activate(c) {schedule(c,periodic=true)}
         setup.key.fill(0);setup.recoveryCode=null
     }

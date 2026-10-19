@@ -1379,8 +1379,8 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Web Sync now finds JNotes automatically. Enter your email and password; no website or server address is needed. The labeled website link remains in Settings.")
-            Text("Optional encrypted Web Sync connects your To-Do, Notes and Journal to the browser. Set it up in Settings → Web Sync, save your recovery code, and review the upload preview. Sync stays off until you enable it; phone files remain available offline.")
+            Text("Background sync now pauses safely if it cannot start. Your phone notes remain available. Open Settings → Web Sync to retry.")
+            Text("For a fresh installation, choose your existing notes folder. For Web Sync, create your password on the website once, save the recovery code there, then sign in with the same email and password on your phone.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

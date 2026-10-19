@@ -1,8 +1,8 @@
-# JNotes 1.5.4 — Android sync startup fix
+# JNotes 1.5.5 — recover from failed sync without a startup crash
 
-- Fix background sync failing with `androidx.work.impl.WorkDatabase_Impl.<init> []` when enabling sync. The optimized release now preserves the database and worker constructors Android loads at runtime.
-- Failed startup leaves sync setup ready to retry and keeps the verified phone backup, saved credentials and pending edits.
-- Background scheduler failures no longer interrupt opening the app or disabling sync.
-- Release builds and publication now check these constructors inside the actual optimized APK.
+- Handles WorkManager initialization and scheduling failures on their own background threads, keeping the notes interface available.
+- Pauses background sync after an interrupted scheduler startup instead of repeatedly restarting it on every launch. Local edits remain queued; Settings → Web Sync → Sync now explicitly retries.
+- Excludes the scheduler cache from device backups and keeps account/queue data separate from scheduler health.
+- Tests the actual optimized release APK on Android 14: fresh installation, missing session, broken scheduler storage, reopening after failure, interrupted startup, and reinstall.
 
-Install **jnotes-27.apk** over your existing app; no uninstall, account reset or new recovery code is needed. If sync was already enabled, open the app and choose **Settings → Web Sync → Sync now**. Otherwise finish the existing sign-in and upload preview.
+Install **jnotes-28.apk**. For a fresh installation, choose your **existing notes folder** to load its notes and tasks. Reconnect Web Sync with your existing JNotes email/password and review the upload preview.

@@ -5,4 +5,8 @@
     <exclude domain="database" path="web-sync.db-wal" />
     <exclude domain="database" path="web-sync.db-shm" />
     <exclude domain="sharedpref" path="web-sync.xml" />
+    <exclude domain="database" path="androidx.work.workdb" />
+    <exclude domain="database" path="androidx.work.workdb-journal" />
+    <exclude domain="database" path="androidx.work.workdb-wal" />
+    <exclude domain="database" path="androidx.work.workdb-shm" />
 </full-backup-content>

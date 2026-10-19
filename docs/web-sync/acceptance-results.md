@@ -44,3 +44,9 @@ Local HTTP gateway tests exercise the real Supabase client, full-cost KDF, email
 ## 1.5.4 Android release packaging
 
 The 1.5.3 distributed APK was inspected directly: its `WorkDatabase_Impl` no-argument constructor was absent, reproducing the reported runtime lookup failure. The 1.5.4 release adds explicit R8 keep rules for the reflectively constructed database, input mergers and sync worker. `tools/check_release_reflection.py` reads definitions and executable constructors from every DEX in the optimized APK; both Android CI and the signed release workflow require that check. Debug-only tests are insufficient for this defect. Activation tests also cover scheduler failure returning to a disabled, retryable state while preserving the queue and account metadata.
+
+## 1.5.5 startup failure isolation
+
+WorkManager initialization and scheduling errors can arrive on its task executor after `getInstance` returns; catching only the caller's synchronous exception leaves a process-crash path. The application now registers WorkManager's initialization/scheduling exception handlers, observes enqueue failures, and tracks interrupted scheduler startup separately from sync consent and the durable local outbox. Scheduler failure pauses only background processing, including on reopening, until an explicit Settings retry. Scheduler cache files are excluded from backups.
+
+Android CI installs the actual optimized APK on an Android 14 emulator. It checks fresh boot, missing-session failure, inaccessible scheduler database, reopening after failure, an interrupted startup marker, and a fresh reinstall. The 1.5.4 release is installed as a negative control for the scheduler-database failure. These checks use synthetic local state only.

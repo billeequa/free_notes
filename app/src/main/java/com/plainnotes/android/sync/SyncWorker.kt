@@ -13,7 +13,7 @@ import org.json.JSONObject
 
 class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(context,params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        if(!SyncRuntime.enabled(applicationContext))return@withContext Result.success()
+        if(!SyncRuntime.enabled(applicationContext)||SyncHealth.paused(applicationContext))return@withContext Result.success()
         SyncRuntime.workerMutex.withLock {
             var key:ByteArray?=null
             try {

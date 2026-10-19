@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         if(com.plainnotes.android.sync.SyncRuntime.enabled(applicationContext)) {
                             try {com.plainnotes.android.sync.SyncRuntime.schedule(applicationContext,periodic=true)}
-                            catch(e:Exception) {com.plainnotes.android.sync.SyncRuntime.status(applicationContext,"Saved on phone — background sync could not start. Retry in Settings.")}
+                            catch(e:Exception) {com.plainnotes.android.sync.SyncHealth.pause(applicationContext)}
                         }
                     }
                 }

@@ -82,7 +82,7 @@ fun WebSyncSettings() {
                 Text(email)
                 Text("Pending: $counts · Last sync: "+prefs.getLong("last_sync",0).let {if(it==0L)"Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))})
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.schedule(context)}}},enabled=!busy){Text("Sync now")}
+                    Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.retry(context)}}},enabled=!busy){Text("Sync now")}
                     OutlinedButton(onClick={SyncRuntime.disable(context);enabled=false},enabled=!busy){Text("Disable sync")}
                 }
                 Text("Disabling sync keeps every phone file and the cloud copy. Recovery or reconnecting also never deletes local files.",style=MaterialTheme.typography.bodySmall)

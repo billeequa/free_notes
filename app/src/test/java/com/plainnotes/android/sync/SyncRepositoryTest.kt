@@ -49,6 +49,40 @@ class SyncRepositoryTest {
         SyncRuntime.prefs(context).edit().putBoolean("enabled",true).commit()
         return repo to note
     }
+    @Test fun freshFolderSelectionLoadsExistingTasksWithoutAccountOrSyncMetadata()=runBlocking {
+        // Fixed file fixture independent of the current serializer: this is what survives uninstall.
+        val text="""Jnotes To-do: 2
+
+id: 11111111-1111-4111-8111-111111111111
+title: Active task 🚨
+description: First line\nSecond line
+added: 2026-09-15T12:10:00-04:00
+completed: ${""}
+flagged: false
+flags: urgent,important
+
+id: 22222222-2222-4222-8222-222222222222
+title: Completed task
+description: Saved description
+added: 2026-09-14T12:10:00-04:00
+completed: 2026-09-16T13:20:00-04:00
+flagged: true
+flags: long_term
+"""
+        val file=File(provider.root,"to_do_jnotes.txt").apply {writeText(text)}
+        val fresh=NotesRepository(context)
+        val tasks=fresh.loadTodos()
+        assertEquals(2,tasks.size)
+        assertEquals("11111111-1111-4111-8111-111111111111",tasks[0].id)
+        assertEquals("First line\nSecond line",tasks[0].description)
+        assertNull(tasks[0].completedAt)
+        assertEquals(setOf(com.plainnotes.android.data.TodoFlag.URGENT,com.plainnotes.android.data.TodoFlag.IMPORTANT),tasks[0].flags)
+        assertEquals(OffsetDateTime.parse("2026-09-16T13:20:00-04:00"),tasks[1].completedAt)
+        assertTrue(tasks[1].flagged)
+        assertEquals(setOf(com.plainnotes.android.data.TodoFlag.LONG_TERM),tasks[1].flags)
+        assertEquals(tasks,NotesRepository(context).loadTodos())
+        assertEquals(text,file.readText());assertFalse(SyncRuntime.enabled(context))
+    }
     @Test fun reconciliationResumesInBoundedBatchesWithoutDuplicateIdentities()=runBlocking {
         for(i in 0..4)File(provider.root,"20261018-12000$i-note.txt").writeText(
             NoteFileParser.serialize(NoteTextContent("note $i",date,date,"Body $i")))
