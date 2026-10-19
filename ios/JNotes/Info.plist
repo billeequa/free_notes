@@ -16,6 +16,6 @@
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UIBackgroundModes</key><array><string>fetch</string></array>
-<key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.billeequa.jnotes.ios.refresh</string></array>
+<key>BGTaskSchedulerPermittedIdentifiers</key><array><string>$(PRODUCT_BUNDLE_IDENTIFIER).refresh</string></array>
 <key>ITSAppUsesNonExemptEncryption</key><true/>
 </dict></plist>

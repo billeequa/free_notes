@@ -3,7 +3,7 @@ import BackgroundTasks
 
 @MainActor final class AppDelegate: NSObject, UIApplicationDelegate {
     static var backgroundWork: (() async -> Void)?
-    static let taskID = "com.billeequa.jnotes.ios.refresh"
+    static var taskID: String { (Bundle.main.bundleIdentifier ?? "com.billeequa.jnotes.ios") + ".refresh" }
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskID, using: nil) { task in
             let work = Task { @MainActor in await Self.backgroundWork?(); task.setTaskCompleted(success: !Task.isCancelled); Self.schedule() }

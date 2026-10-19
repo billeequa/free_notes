@@ -37,6 +37,7 @@ struct HistoryRevision: Decodable, Identifiable {
     @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: "syncEnabled") } }
     @Published var website = "https://j4notes.pages.dev"
     private var disk = SyncDisk()
+    private var needsAnotherPass = false
     private var stateError: String?
     private weak var store: NotesStore?
     private var scheduled: Task<Void, Never>?
@@ -65,9 +66,10 @@ struct HistoryRevision: Decodable, Identifiable {
     }
     func schedule() {
         guard enabled, connected else { return }
+        if busy { needsAnotherPass = true; return }
         scheduled?.cancel()
         scheduled = Task { [weak self] in
-            do { try await Task.sleep(nanoseconds: 1_000_000_000); try Task.checkCancellation(); await self?.sync() } catch { }
+            do { try await Task.sleep(nanoseconds: 1_000_000_000); try Task.checkCancellation(); self?.scheduled = nil; await self?.sync() } catch { }
         }
     }
     func connect(email: String, password: String) async throws {
@@ -111,7 +113,8 @@ struct HistoryRevision: Decodable, Identifiable {
     func sync() async {
         guard !busy, enabled, connected, let store, store.loaded, store.error == nil else { return }
         if let stateError { status = stateError; return }
-        busy = true; status = "Syncing…"; defer { busy = false }
+        busy = true; needsAnotherPass = false; status = "Syncing…"
+        defer { busy = false; if needsAnotherPass { schedule() } }
         do {
             guard disk.root == store.rootURL.standardizedFileURL.path else { throw JNotesError("Notes folder differs. Reconnect to sync this folder.") }
             guard let data = try Keychain.read() else { throw JNotesError("Sign in again. Local notes are safe.") }

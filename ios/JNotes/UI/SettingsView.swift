@@ -11,7 +11,10 @@ struct SettingsView: View {
     @AppStorage("doubleXEnabled") private var doubleX = false
     @AppStorage("showReader") private var showReader = true
     @AppStorage("folderChosen") private var folderChosen = false
-    @State private var folderPicker = false, imports = false, trash = false, cloud = false
+    @State private var folderPicker = false
+    @State private var imports = false
+    @State private var trash = false
+    @State private var cloud = false
     @State private var share: ShareFile?
     private var palette: Palette { Palette(theme) }
     var body: some View {
@@ -88,8 +91,11 @@ struct TrashView: View {
 struct WebSyncView: View {
     @EnvironmentObject var store: NotesStore
     @EnvironmentObject var sync: SyncCoordinator
-    @State private var email = "", password = "", error: String?
-    @State private var preview = false, disconnect = false
+    @State private var email = ""
+    @State private var password = ""
+    @State private var error: String?
+    @State private var preview = false
+    @State private var disconnect = false
     @AppStorage("theme") private var theme = "dark_1"
     var body: some View {
         Form {

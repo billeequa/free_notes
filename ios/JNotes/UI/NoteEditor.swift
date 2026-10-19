@@ -12,8 +12,13 @@ struct NoteEditor: View {
     @State private var draft: Payload
     @State private var saved: Payload
     @State private var editing: Bool
-    @State private var rename = false, info = false, trash = false, history = false
-    @State private var title = "", saveError: String?, link: URL?
+    @State private var rename = false
+    @State private var info = false
+    @State private var trash = false
+    @State private var history = false
+    @State private var title = ""
+    @State private var saveError: String?
+    @State private var link: URL?
     @State private var saveTask: Task<Void, Never>?
     private var palette: Palette { Palette(theme) }
     init(request: EditorRequest) {
@@ -121,7 +126,8 @@ struct RevisionHistoryView: View {
     @EnvironmentObject var sync: SyncCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var revisions: [(HistoryRevision, Payload)] = []
-    @State private var error: String?, selected: Int?
+    @State private var error: String?
+    @State private var selected: Int?
     var body: some View {
         NavigationStack {
             List {

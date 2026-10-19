@@ -6,8 +6,10 @@ struct BookLibraryView: View {
     let jump: Int
     @StateObject private var library = EpubLibrary()
     @AppStorage("theme") private var theme = "dark_1"
-    @State private var imports = false, folder = false
-    @State private var selected: BookEntry?, deleting: BookEntry?
+    @State private var imports = false
+    @State private var folder = false
+    @State private var selected: BookEntry?
+    @State private var deleting: BookEntry?
     private var palette: Palette { Palette(theme) }
     var body: some View {
         ScrollViewReader { proxy in
@@ -48,7 +50,8 @@ struct BookReaderView: View {
     @State private var publication: EpubPublication?
     @State private var chapter: Int
     @State private var scroll: Double
-    @State private var error: String?, link: URL?
+    @State private var error: String?
+    @State private var link: URL?
     init(book: BookEntry, library: EpubLibrary) { self.book = book; self.library = library; _chapter = State(initialValue: book.chapter); _scroll = State(initialValue: book.scroll) }
     private var palette: Palette { Palette(theme) }
     var body: some View {

@@ -76,3 +76,7 @@ Web Sync adds To-Do, Notes and Journal in the browser, opt-in Android synchroniz
 The frontend and backend SQL are both in this repository. [Get a live website address with Cloudflare Pages](docs/web-sync/cloudflare-pages.md), [host it anywhere](server/README.md), follow the [operator/setup guide](docs/web-sync/operator-guide.md), and review [the protocol](docs/web-sync/protocol.md) and [recovery behavior](docs/web-sync/recovery.md). For local browser testing, build and serve the frontend, then visit **http://localhost:8080**. Once hosted, use your actual HTTPS domain in both Android Web Sync setup and your browser. GitHub itself is the source host, not the notebook login page.
 
 Web Sync is a first release. Review [completed checks and remaining acceptance work](docs/web-sync/acceptance-results.md) before enabling it. Phone setup requires a saved recovery code, a verified local backup and an explicit upload preview.
+
+## iOS source
+
+The first native iPhone/iPad client is in [`ios/`](ios/README.md). Open `ios/JNotes.xcodeproj` in Xcode; the [Mac build handoff](ios/README.md) covers simulator tests, device signing, local files and Web Sync. The [parity checklist](ios/PARITY.md) records the Android behaviors and iPhone checks.

@@ -3,6 +3,11 @@ import SwiftUI
 import ZIPFoundation
 
 struct StoreIndex: Codable { var version = 1; var records: [LocalRecord] = [] }
+struct StoreTransaction: Codable {
+    let records: [LocalRecord]
+    let writes: [String: String]
+    let removes: [String]
+}
 struct StoreSnapshot { var records: [LocalRecord]; var error: String? }
 
 @MainActor final class NotesStore: ObservableObject {
@@ -50,6 +55,7 @@ struct StoreSnapshot { var records: [LocalRecord]; var error: String? }
         do {
             let fm = FileManager.default
             try fm.createDirectory(at: root, withIntermediateDirectories: true)
+            try recoverTransaction(root)
             let indexURL = root.appendingPathComponent(".jnotes-ios-index.json")
             let index: StoreIndex
             if fm.fileExists(atPath: indexURL.path) {
@@ -92,36 +98,62 @@ struct StoreSnapshot { var records: [LocalRecord]; var error: String? }
         scopedURL?.stopAccessingSecurityScopedResource(); scopedURL = url; rootURL = url
         defaults.set(bookmark, forKey: "notesBookmark"); error = nil; loaded = false; await load()
     }
+    nonisolated static func recoverTransaction(_ root: URL) throws {
+        let fm = FileManager.default, journal = root.appendingPathComponent(".jnotes-ios-journal.json")
+        guard fm.fileExists(atPath: journal.path) else { return }
+        let tx = try JSONDecoder().decode(StoreTransaction.self, from: Data(contentsOf: journal))
+        func path(_ relative: String) throws -> URL {
+            let value = root.appendingPathComponent(relative).standardizedFileURL
+            guard !relative.hasPrefix("/"), !relative.components(separatedBy: "/").contains(".."), value.path.hasPrefix(root.standardizedFileURL.path + "/") else { throw JNotesError("Invalid local save journal") }
+            return value
+        }
+        for (name, text) in tx.writes {
+            let url = try path(name)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        // The intended destination is durable before an old name is removed.
+        for name in tx.removes {
+            let url = try path(name)
+            if tx.writes[name] == nil && fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+        }
+        try JSONEncoder().encode(StoreIndex(records: tx.records)).write(to: root.appendingPathComponent(".jnotes-ios-index.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try fm.removeItem(at: journal)
+    }
+    private func commit(_ tx: StoreTransaction) throws {
+        let journal = rootURL.appendingPathComponent(".jnotes-ios-journal.json")
+        try JSONEncoder().encode(tx).write(to: journal, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        do { try Self.recoverTransaction(rootURL) }
+        catch {
+            // Retain the transaction for recovery; prevent another write replacing it.
+            self.error = "A local save needs recovery. Restart JNotes to retry. Original files are preserved."
+            throw error
+        }
+        records = tx.records; generation += 1; didChange?()
+    }
     func save(_ original: Payload, deleted: Bool = false, touch: Bool = true) throws {
         guard loaded, error == nil else { throw JNotesError("Resolve the notes folder error before saving.") }
         var p = try original.validated(); if touch { p.modified_at = Dates.iso(Date()) }
         let old = records.first { $0.id == p.id }
         var record = LocalRecord(payload: p, deleted: deleted, filename: old?.filename)
-        var next = records.filter { $0.id != p.id }
+        var next = records.filter { $0.id != p.id }, writes: [String: String] = [:], removes: [String] = []
         if p.kind != .task {
-            let fm = FileManager.default
-            let folder = deleted ? rootURL.appendingPathComponent("Trash", isDirectory: true) : rootURL
-            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
             var name = FileFormats.filename(p)
-            let occupied = next.contains { $0.filename == name && $0.deleted == deleted }
-            if occupied { name = String(name.dropLast(4)) + "-" + String(p.id.prefix(8)) + ".txt" }
+            if next.contains(where: { $0.filename == name && $0.deleted == deleted }) { name = String(name.dropLast(4)) + "-" + String(p.id.prefix(8)) + ".txt" }
             record.filename = name
-            let destination = folder.appendingPathComponent(name)
-            try FileFormats.serializeNote(p).write(to: destination, atomically: true, encoding: .utf8)
-            next.append(record)
-            // Index first: a crash after copying can leave a redundant file, never lose the only copy.
-            try persistIndex(next)
+            let destination = (deleted ? "Trash/" : "") + name
+            writes[destination] = FileFormats.serializeNote(p)
             if let oldName = old?.filename {
-                let source = (old!.deleted ? rootURL.appendingPathComponent("Trash") : rootURL).appendingPathComponent(oldName)
-                if source != destination, fm.fileExists(atPath: source.path) { try fm.removeItem(at: source) }
+                let source = (old!.deleted ? "Trash/" : "") + oldName
+                if source != destination { removes.append(source) }
             }
+            next.append(record)
         } else {
             next.append(record)
             let liveTasks = next.filter { $0.payload.kind == .task && !$0.deleted }.map(\.payload).sorted { $0.order < $1.order }
-            try FileFormats.serializeTasks(liveTasks).write(to: rootURL.appendingPathComponent(FileFormats.todoName), atomically: true, encoding: .utf8)
-            try persistIndex(next)
+            writes[FileFormats.todoName] = FileFormats.serializeTasks(liveTasks)
         }
-        records = next; generation += 1; didChange?()
+        try commit(StoreTransaction(records: next, writes: writes, removes: removes))
         if p.kind == .task && p.done && old?.payload.done == false { considerDoubleXPrompt() }
     }
     func updateTask(_ id: String, transform: (inout Payload) -> Void) {
@@ -131,14 +163,10 @@ struct StoreSnapshot { var records: [LocalRecord]; var error: String? }
     func perform(_ action: () throws -> Void) { do { try action() } catch { self.notice = error.localizedDescription } }
     func permanentDelete(_ id: String) throws {
         guard let r = records.first(where: { $0.id == id }), r.deleted else { return }
-        if let name = r.filename {
-            let url = rootURL.appendingPathComponent("Trash").appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
-        }
-        // Keep the minimal tombstone so a later sync cannot resurrect it.
         var next = records; let i = next.firstIndex(where: { $0.id == id })!
-        next[i].filename = nil; next[i].payload.body = ""
-        try persistIndex(next); records = next; generation += 1
+        next[i].filename = nil; next[i].payload.body = ""; next[i].payload.title = ""; next[i].payload.description = ""
+        let removes = r.filename.map { ["Trash/" + $0] } ?? []
+        try commit(StoreTransaction(records: next, writes: [:], removes: removes))
     }
     func importFiles(_ urls: [URL]) throws {
         for url in urls {

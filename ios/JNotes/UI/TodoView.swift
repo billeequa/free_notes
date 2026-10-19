@@ -147,7 +147,9 @@ struct TaskEditView: View {
     let save: (Payload) throws -> Void
     @Environment(\.dismiss) private var dismiss
     @AppStorage("theme") private var theme = "dark_1"
-    @State private var title = "", description = "", flags = Set<String>()
+    @State private var title = ""
+    @State private var description = ""
+    @State private var flags = Set<String>()
     @State private var error: String?
     var body: some View {
         NavigationStack {

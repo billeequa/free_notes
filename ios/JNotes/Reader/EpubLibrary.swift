@@ -55,7 +55,7 @@ enum EPUB {
         }
         let container = EPUBXML(); try container.parse(cache.appendingPathComponent("META-INF/container.xml"))
         guard let path = container.rootfile else { throw JNotesError("EPUB package is missing") }
-        let packageURL = try inside(path, relativeTo: cache.appendingPathComponent("/"), root: cache)
+        let packageURL = try inside(path, relativeTo: cache.appendingPathComponent("placeholder.opf"), root: cache)
         let package = EPUBXML(); try package.parse(packageURL)
         var chapters: [URL] = [], names: [String] = []
         for id in package.spine {
