@@ -63,6 +63,20 @@ final class JNotesTests: XCTestCase {
         var note = base; note.kind = .note
         XCTAssertNil(Payload.mergeTask(base: note, local: note, remote: note))
     }
+    func testTimestampNormalizationPreservesAndroidNanoseconds() throws {
+        let offset = "2026-10-19T14:12:30.123456789-04:00"
+        XCTAssertEqual(Dates.normalizedInstant(offset), "2026-10-19T18:12:30.123456789Z")
+        XCTAssertEqual(Dates.epochMillis(offset), Dates.epochMillis("2026-10-19T18:12:30.123Z"))
+        var p = Payload.new(.task, title: "Task")
+        p.created_at = offset; p.completed_at = "2026-10-19T19:00:00.999999999Z"
+        let q = try FileFormats.parseTasks(FileFormats.serializeTasks([p]))[0]
+        XCTAssertEqual(q.created_at, "2026-10-19T18:12:30.123456789Z")
+        XCTAssertEqual(q.completed_at, p.completed_at)
+        XCTAssertTrue(try p.validated().sameContent(as: q))
+        let note = Payload.new(.note, title: "Stable")
+        let loaded = FileFormats.parseNote(FileFormats.serializeNote(note), filename: "note.txt", id: note.id)
+        XCTAssertTrue(note.sameContent(as: loaded))
+    }
     func testCanonicalPayloadIncludesExplicitNulls() throws {
         let p = Payload.new(.note)
         let data = try p.canonical(), json = try JSONSerialization.jsonObject(with: data) as! [String: Any]

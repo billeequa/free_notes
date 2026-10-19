@@ -90,7 +90,7 @@ struct TodoView: View {
         TaskCard(payload: p, palette: palette, pending: pendingID == p.id, left: pendingLeft,
                  reveal: { left in withAnimation(.easeOut(duration: 0.16)) { pendingLeft = left; pendingID = pendingID == p.id ? nil : p.id } },
                  cancel: { withAnimation { pendingID = nil } },
-                 confirm: { pendingID = nil; store.updateTask(p.id) { $0.completed_at = Dates.iso(Date()) } },
+                 confirm: { pendingID = nil; store.updateTask(p.id) { $0.completed_at = Dates.taskISO(Date()) } },
                  reopen: { store.updateTask(p.id) { $0.completed_at = nil } },
                  edit: { edit = TaskEditRequest(payload: p) },
                  toggleFlag: { flag in store.updateTask(p.id) { task in if task.flags.contains(flag.rawValue) { task.flags.removeAll { $0 == flag.rawValue } } else { task.flags.append(flag.rawValue) } } },

@@ -30,7 +30,7 @@ struct Payload: Codable, Equatable, Identifiable {
     var completed_at: String?
     var flagged = false
     var flags: [String] = []
-    var order = Int64(Date().timeIntervalSince1970 * 1000)
+    var order: Int64 = 0
     var displayTitle: String { title.isEmpty ? "Untitled" : title }
     var done: Bool { completed_at != nil }
     var symbols: String {
@@ -40,6 +40,7 @@ struct Payload: Codable, Equatable, Identifiable {
     var isFlagged: Bool { flagged || !flags.isEmpty }
     static func new(_ kind: RecordKind, title: String = "") -> Payload {
         var p = Payload(); p.kind = kind; p.title = title
+        if kind == .task { p.created_at = Dates.taskISO(Date()); p.modified_at = p.created_at; p.order = Dates.epochMillis(p.created_at) }
         if kind == .journal { p.journal_date = Dates.day(Date()); p.title = title.isEmpty ? p.journal_date! : title }
         return p
     }
@@ -54,7 +55,12 @@ struct Payload: Codable, Equatable, Identifiable {
               order >= -9_007_199_254_740_991, order <= 9_007_199_254_740_991 else { throw JNotesError("Unsupported or damaged record. Files are preserved.") }
         var p = self
         p.flags = TaskFlag.allCases.map(\.rawValue).filter { flags.contains($0) }
-        if kind != .task { p.created_at = Dates.iso(Dates.parse(created_at)!); p.modified_at = Dates.iso(Dates.parse(modified_at)!) }
+        if kind != .task {
+            p.created_at = Dates.iso(Dates.parse(created_at)!); p.modified_at = Dates.iso(Dates.parse(modified_at)!); p.order = 0
+        } else {
+            p.created_at = Dates.normalizedInstant(created_at); p.modified_at = Dates.normalizedInstant(modified_at)
+            p.completed_at = completed_at.map(Dates.normalizedInstant); p.order = Dates.epochMillis(p.created_at)
+        }
         return p
     }
     func canonical() throws -> Data {
@@ -101,6 +107,28 @@ enum Dates {
         let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = format; f.isLenient = false; return f
     }
     static func iso(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
+    static func taskISO(_ date: Date) -> String {
+        let f = ISO8601DateFormatter(); f.formatOptions.insert(.withFractionalSeconds)
+        return normalizedInstant(f.string(from: date))
+    }
+    /// Preserve Android nanoseconds while normalizing the timezone, without a floating-point round trip.
+    static func normalizedInstant(_ text: String) -> String {
+        let pattern = #"^(.{19})(?:\.([0-9]{1,9}))?(Z|[+-][0-9]{2}:[0-9]{2})$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let baseRange = Range(match.range(at: 1), in: text), let zoneRange = Range(match.range(at: 3), in: text),
+              let whole = ISO8601DateFormatter().date(from: String(text[baseRange]) + String(text[zoneRange])) else { return parse(text).map(iso) ?? text }
+        var fraction = Range(match.range(at: 2), in: text).map { String(text[$0]) } ?? ""
+        while fraction.last == "0" { fraction.removeLast() }
+        return String(iso(whole).dropLast()) + (fraction.isEmpty ? "" : "." + fraction) + "Z"
+    }
+    static func epochMillis(_ text: String) -> Int64 {
+        let value = normalizedInstant(text)
+        let pieces = value.dropLast().components(separatedBy: ".")
+        guard let whole = ISO8601DateFormatter().date(from: pieces[0] + "Z") else { return 0 }
+        let millis = pieces.count > 1 ? Int64(String((pieces[1] + "000").prefix(3))) ?? 0 : 0
+        return Int64(whole.timeIntervalSince1970) * 1000 + millis
+    }
     static func parse(_ text: String) -> Date? {
         let f = ISO8601DateFormatter(); if let d = f.date(from: text) { return d }
         f.formatOptions.insert(.withFractionalSeconds)

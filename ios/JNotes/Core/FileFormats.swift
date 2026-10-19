@@ -38,7 +38,7 @@ enum FileFormats {
             let completed = try field(4,"completed"); p.completed_at = completed.isEmpty ? nil : completed
             let flagged = try field(5,"flagged"); guard ["true","false"].contains(flagged) else { throw JNotesError("Invalid legacy flag") }; p.flagged = flagged == "true"
             if !legacy { let f = try field(6,"flags"); p.flags = f.isEmpty ? [] : f.components(separatedBy: ",") }
-            p.order = Int64((Dates.parse(p.created_at)?.timeIntervalSince1970 ?? 0) * 1000)
+            p.order = Dates.epochMillis(p.created_at)
             p = try p.validated(); guard ids.insert(p.id).inserted else { throw JNotesError("Duplicate task IDs") }; result.append(p)
         }
         return result

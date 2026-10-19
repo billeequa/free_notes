@@ -64,7 +64,7 @@ Passwords are processed with the same Argon2id/HKDF derivation as Android/browse
 
 Pending uploads are durable immutable operations, so a timeout/restart retries the same operation rather than creating duplicate writes. Cloud cursors advance after local application or durable conflict evidence. Concurrent task changes to different fields merge; conflicting changes are listed individually with phone/web/both choices. Selecting the web version preserves a local conflict backup. Notes expose cloud revision history and restore through the editor menu.
 
-The current hosted deployment's account-approval rules still apply. Building this iOS client does **not** provision or authorize another user, change database policies, or give a friend access to Jack's notebook. Use an approved account for server integration tests; use local mode otherwise.
+The current hosted deployment's account-approval rules still apply. Building this iOS client does **not** provision or authorize another user, change database policies, or give a friend access to the existing owner's notebook. Use an approved account for server integration tests; use local mode otherwise.
 
 Password setup and recovery remain on the website, matching the Android flow. Disconnecting removes the phone's session/key from Keychain but preserves local content and sync identities/conflicts for reconnection to the same notebook. Switching to another account/notebook on the same populated folder is deliberately blocked to prevent mixing encrypted vaults.
 
