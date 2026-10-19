@@ -88,8 +88,9 @@ object SyncRuntime {
     fun disable(c: Context) {
         prefs(c).edit().putBoolean("enabled",false).putString("status","Saved on phone — sync disabled").commit()
         // Initialize WorkManager only if sync has actually been configured.
-        if(prefs(c).contains("url")) {
-            WorkManager.getInstance(c).cancelUniqueWork(PERIODIC);WorkManager.getInstance(c).cancelUniqueWork(IMMEDIATE)
+        if(prefs(c).contains("url")) runCatching {
+            val work=WorkManager.getInstance(c)
+            work.cancelUniqueWork(PERIODIC);work.cancelUniqueWork(IMMEDIATE)
         }
         // Keep a wrapped credential for safe re-enable; no unwrapped key survives a worker.
     }
@@ -136,6 +137,10 @@ object SyncRuntime {
         require(s.meta("root_uri").isEmpty() || s.meta("root_uri")==rootUri){"The previously linked notes folder differs. Relink that folder or use a separately reviewed new-vault reset. Local files are unchanged."}
         val oldOwner=s.meta("owner")
         require(oldOwner.isEmpty() || oldOwner==setup.owner && s.meta("deployment")==setup.bootstrap.getString("deployment_id") && s.meta("key_id")==setup.keyId){"Previously linked cloud differs. A reviewed backup/reset is required. Phone files are unchanged."}
+        // Fail before changing the saved setup or consuming its in-memory key.
+        try {WorkManager.getInstance(c.applicationContext)}catch(e:Exception){
+            throw java.io.IOException("Background sync could not start. Your phone files are safe. Retry setup after installing the latest update.",e)
+        }
         val backup=NotesRepository(c).backupForSync()
         setup.recoveryCode?.let { code ->
             val rk=SyncCrypto.recoveryKey(code)
@@ -151,10 +156,19 @@ object SyncRuntime {
         if(s.meta("device").isEmpty())s.setMeta("device",UUID.randomUUID().toString())
         SyncConnection.saveActive(c,setup.api.connection!!)
         prefs(c).edit().putString("email",email.trim())
-            .putString("backup",backup).putBoolean("enabled",true).putString("status","Saved on phone — pending initial upload").commit()
-        setup.key.fill(0);setup.recoveryCode=null
+            .putString("backup",backup).commit()
         // Snapshot and outbox construction occur off the UI thread, after verified backup and consent.
-        schedule(c,periodic=true)
+        activate(c) {schedule(c,periodic=true)}
+        setup.key.fill(0);setup.recoveryCode=null
+    }
+    /** Scheduling failure preserves credentials/queue and leaves setup ready to retry. */
+    internal fun activate(c: Context,enqueue: ()->Unit) {
+        prefs(c).edit().putBoolean("enabled",true).putString("status","Saved on phone — pending initial upload").commit()
+        try {enqueue()}catch(e:Exception) {
+            val message="Background sync could not start. Your phone backup is saved. Try enabling sync again."
+            prefs(c).edit().putBoolean("enabled",false).putString("status",message).commit()
+            throw java.io.IOException(message,e)
+        }
     }
     /** Explicit repair only: verified phone backup, then preserve both sides as conflicts.
      * This never replaces or deletes phone files and never accepts an empty server implicitly. */

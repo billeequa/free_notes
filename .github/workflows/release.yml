@@ -57,6 +57,7 @@ jobs:
           assert re.fullmatch(r'[0-9]+(?:\.[0-9]+)*', metadata['version'])
           apk = pathlib.Path('releases') / metadata['file']
           assert hashlib.sha256(apk.read_bytes()).hexdigest() == metadata['sha256']
+          subprocess.run(['python3', 'tools/check_release_reflection.py', str(apk)], check=True)
           subprocess.run([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/apksigner', 'verify', '--verbose', str(apk)], check=True)
           badging = subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/aapt', 'dump', 'badging', str(apk)], text=True)
           assert "name='com.plainnotes.android'" in badging.splitlines()[0]
