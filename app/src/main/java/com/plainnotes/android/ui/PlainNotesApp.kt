@@ -800,7 +800,7 @@ private fun SettingsScreen(
                     websiteError = null
                     try {
                         uriHandler.openUri("https://j4notes.pages.dev")
-                    } catch (_: android.content.ActivityNotFoundException) {
+                    } catch (_: IllegalArgumentException) {
                         websiteError = "No browser is available. Open the address above on another device."
                     }
                 }) {
