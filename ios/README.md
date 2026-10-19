@@ -31,6 +31,8 @@ xcodebuild -project ios/JNotes.xcodeproj -scheme JNotes \
   -derivedDataPath ios-build CODE_SIGNING_ALLOWED=NO test-without-building
 ```
 
+The reader uses the original `evaluateJavaScript` completion-handler API, avoiding the missing Swift WebKit overlay library in the Xcode 16.4/iOS 18.5 simulator ([WebKit bug 293831](https://bugs.webkit.org/show_bug.cgi?id=293831)). No runtime-path workaround or higher minimum deployment target is required.
+
 The GitHub **iOS build and compatibility tests** workflow performs the simulator build and XCTest run on a Mac. No Apple credentials are in CI.
 
 ## First launch and files

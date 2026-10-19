@@ -121,10 +121,11 @@ struct EpubWebView: UIViewRepresentable {
         }
         func applyStyle() {
             let bg = parent.dark ? "#151816" : "#fbf5ec", fg = parent.dark ? "#f1efe8" : "#27231d"
-            // App-supplied isolated script only; publication JavaScript stays disabled.
+            // App-supplied styling only; publication JavaScript stays disabled.
+            // Use the original ObjC-imported API to avoid WebKit bug 293831 on the iOS 18.5 simulator.
             let css = "html,body{background:\(bg)!important;color:\(fg)!important;font-size:\(Int(parent.fontSize))px!important;line-height:1.55!important;} body{padding:12px!important;}img,svg{max-width:100%!important;height:auto!important;}"
             let quoted = String(data: try! JSONSerialization.data(withJSONObject: [css]), encoding: .utf8)!
-            view?.evaluateJavaScript("var s=document.getElementById('jnotes-style')||document.head.appendChild(document.createElement('style'));s.id='jnotes-style';s.textContent=\(quoted)[0];", in: nil, in: .defaultClient, completionHandler: nil)
+            view?.evaluateJavaScript("var s=document.getElementById('jnotes-style')||document.head.appendChild(document.createElement('style'));s.id='jnotes-style';s.textContent=\(quoted)[0];", completionHandler: nil)
         }
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             applyStyle()
