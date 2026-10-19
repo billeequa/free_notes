@@ -147,6 +147,8 @@ struct TaskCard: View {
 struct TaskEditView: View {
     let original: Payload
     let save: (Payload) throws -> Void
+    @EnvironmentObject var store: NotesStore
+    @EnvironmentObject var sync: SyncCoordinator
     @Environment(\.dismiss) private var dismiss
     @AppStorage("theme") private var theme = "dark_1"
     @State private var title = ""
@@ -169,6 +171,7 @@ struct TaskEditView: View {
                     }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
                 }
         }.preferredColorScheme(Palette(theme).dark ? .dark : .light).tint(Palette(theme).primary)
-            .onAppear { title = original.title; description = original.description; flags = Set(original.flags) }
+            .onAppear { store.editingID = original.id; title = original.title; description = original.description; flags = Set(original.flags) }
+            .onDisappear { store.editingID = nil; sync.schedule() }
     }
 }
