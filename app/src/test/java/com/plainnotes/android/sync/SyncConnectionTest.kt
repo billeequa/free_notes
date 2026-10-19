@@ -95,6 +95,15 @@ class SyncConnectionTest {
             SyncConnection.prepare(context,"",fetch={directory().put("supabase_url","https://changed-without-revision.test")},probe={bootstrap()})
         }
     }
+    @Test fun slowOlderDiscoveryCannotOverwriteANewerValidatedDirectory() {
+        val older = directory().put("revision",2).put("web_url","https://older.example.test")
+        val newer = directory().put("revision",3).put("web_url","https://newer.example.test")
+        SyncConnection.prepare(context,"",fetch={older},probe={
+            SyncConnection.prepare(context,"",fetch={newer},probe={bootstrap()})
+            bootstrap()
+        })
+        assertEquals("https://newer.example.test",SyncConnection.website(context))
+    }
     @Test fun wrongDeploymentAndUnrelatedBootstrapNeverReceiveSessionOrAdvanceDirectory() {
         assertThrows(SyncConnection.ConfigurationChanged::class.java) {
             SyncConnection.prepareSession(context,session(),directory().getString("deployment_id"),fetch={directory().put("revision",2)},probe={api ->

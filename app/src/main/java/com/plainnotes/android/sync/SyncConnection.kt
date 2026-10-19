@@ -102,7 +102,12 @@ object SyncConnection {
         if(b.getInt("protocol_version") != 1 || b.getString("deployment_id") != service.deployment) throw ConfigurationChanged()
         if(!service.custom) {
             // Only a successful anonymous identity check can advance the cached directory.
-            SyncRuntime.prefs(c).edit().putString(CACHE,service.json().toString()).apply()
+            synchronized(this) {
+                val latest = cached(c)
+                if(latest != null && latest.revision == service.revision && latest != service) throw ConfigurationChanged()
+                if(latest == null || latest.revision < service.revision)
+                    SyncRuntime.prefs(c).edit().putString(CACHE,service.json().toString()).apply()
+            }
         }
         return Prepared(service,api,b)
     }

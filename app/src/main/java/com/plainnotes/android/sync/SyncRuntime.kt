@@ -151,7 +151,7 @@ object SyncRuntime {
             return Setup(api,b,owner,keyId,key,api.vault(),recovery)
         }finally{credentials.wrap.fill(0)}
     }
-    suspend fun enable(c: Context,setup: Setup,email: String) {
+    suspend fun enable(c: Context,setup: Setup,email: String) = workerMutex.withLock {
         val s=store(c)
         val rootUri=NotesRepository(c).rootFolderUri().first()?.toString() ?: error("Choose a notes folder first")
         require(s.meta("root_uri").isEmpty() || s.meta("root_uri")==rootUri){"The previously linked notes folder differs. Relink that folder or use a separately reviewed new-vault reset. Local files are unchanged."}
