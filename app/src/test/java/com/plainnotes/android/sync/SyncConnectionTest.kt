@@ -8,7 +8,6 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mockito.Mockito
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -126,16 +125,29 @@ class SyncConnectionTest {
         assertNull(prefs.getString("service_directory",null))
     }
     @Test fun missingMigratedVaultCannotCreateANewVaultOrChangePassword() {
-        val service = SyncConnection.parse(directory()); val store = SyncRuntime.store(context)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1",0),0)
+        val requests = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        server.createContext("/") { exchange ->
+            val path = exchange.requestURI.path
+            requests.add(exchange.requestMethod+" "+path)
+            val response = when(path) {
+                "/rest/v1/public_bootstrap" -> org.json.JSONArray().put(bootstrap()).toString()
+                "/auth/v1/verify" -> JSONObject().put("user",JSONObject().put("id","owner")).put("access_token","synthetic-session").toString()
+                "/rest/v1/rpc/get_vault" -> JSONObject().put("epoch","new").put("high_water",0).toString()
+                else -> "{}"
+            }.toByteArray()
+            exchange.sendResponseHeaders(200,response.size.toLong()); exchange.responseBody.use { it.write(response) }
+        }
+        server.start()
+        val service = SyncConnection.parse(directory()).copy(backend="http://127.0.0.1:${server.address.port}",custom=true)
+        val store = SyncRuntime.store(context)
         store.setMeta("deployment",service.deployment); store.setMeta("owner","owner"); store.setMeta("key_id","original-key")
-        val api = Mockito.mock(SyncApi::class.java)
-        Mockito.`when`(api.connection).thenReturn(service)
-        Mockito.`when`(api.bootstrap()).thenReturn(bootstrap())
-        Mockito.`when`(api.verifyCode("test@example.test","test-code")).thenReturn(JSONObject().put("user",JSONObject().put("id","owner")))
-        Mockito.`when`(api.vault()).thenReturn(JSONObject().put("epoch","new").put("high_water",0))
-        assertThrows(SyncApi.CloudChanged::class.java) { SyncRuntime.verify(context,api,"test@example.test","test-code","synthetic password") }
-        assertFalse(Mockito.mockingDetails(api).invocations.any { it.method.name in listOf("request","rpc") })
-        assertEquals("original-key",store.meta("key_id"))
+        val api = SyncApi(service.backend,service.publicKey,connection=service)
+        try {
+            assertThrows(SyncApi.CloudChanged::class.java) { SyncRuntime.verify(context,api,"test@example.test","test-code","synthetic password") }
+            assertEquals(listOf("GET /rest/v1/public_bootstrap","POST /auth/v1/verify","POST /rest/v1/rpc/get_vault"),requests.toList())
+            assertEquals("original-key",store.meta("key_id"))
+        } finally { server.stop(0) }
     }
     @Test fun serviceOriginsRejectCredentialsPathsAndInsecureNonlocalEndpoints() {
         for(value in listOf("http://example.test","ftp://localhost","https://me:password@example.test","https://example.test/path","https://example.test?token=secret","https://example.test/#fragment"))
