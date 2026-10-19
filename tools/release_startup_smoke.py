@@ -41,7 +41,9 @@ def seed_fault(starting=False,broken=True):
         # WorkManager migrates the old databases/ path to no_backup/. Block both.
         for parent in ['databases','no_backup']:
             path=f'{ROOT}/{parent}/androidx.work.workdb'
-            adb('shell',f'mkdir -p {path}; chown -R {uid}:{uid} {ROOT}/{parent}; restorecon -R {ROOT}/{parent}')
+            # An empty directory is silently removed by SQLite's corrupt-database
+            # recovery. A child file makes the injected obstruction persistent.
+            adb('shell',f'mkdir -p {path}; echo blocked > {path}/fault-marker; chown -R {uid}:{uid} {ROOT}/{parent}; restorecon -R {ROOT}/{parent}')
 
 def launch(label, expected_alive=True):
     stop();adb('logcat','-c')
