@@ -62,7 +62,9 @@ internal fun groupedTodoRows(
 internal fun todoOpenListIndex(rows: List<TodoListRow>): Int {
     val openIndex = rows.indexOfFirst { it is TodoListRow.Task && it.item.completedAt == null && it.folderId == null }
     return when {
-        openIndex >= 0 -> openIndex + 1
+        // Without history, keep the View header fully visible instead of leaving its bottom edge above one card.
+        openIndex == 0 -> 0
+        openIndex > 0 -> openIndex + 1
         rows.isNotEmpty() -> rows.size + 1
         else -> 0
     }

@@ -28,6 +28,9 @@ jobs:
       # Remove synthetic deployment configuration from the portable bundle.
       - run: npm --prefix web run build
       - run: npm --prefix web audit --audit-level=moderate
+      - name: Verify live Personal and Work production entries
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node server/verify-pages.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: jnotes-web

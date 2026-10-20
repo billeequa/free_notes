@@ -341,6 +341,8 @@ private fun PlainNotesAppContent(
                     state = uiState,
                     viewModel = viewModel,
                     snackbar = snackbarHostState,
+                    workspaceSettings = workspaceSettings,
+                    onSwitchWorkspace = onSwitchWorkspace,
                     jumpToOpenRequest = jumpToOpenRequest,
                     onNotes = { scope.launch { pagerState.animateScrollToPage(notesPage) } },
                 )
@@ -470,18 +472,12 @@ private fun NotesHomeScreen(
                 )
             }
 
-            if (!isJournal && workspaceSettings.enabled) FloatingActionButton(
+            if (!isJournal && workspaceSettings.enabled) WorkspaceSwitchButton(
+                workspace = workspaceSettings.active,
                 onClick = onSwitchWorkspace,
-                containerColor = MaterialTheme.colorScheme.secondary,
-                contentColor = MaterialTheme.colorScheme.onSecondary,
                 modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding()
-                    .padding(start = 88.dp, bottom = 12.dp)
-                    .semantics { contentDescription = if (workspaceSettings.active == Workspace.WORK)
-                        "Work mode. Switch to Personal mode" else "Personal mode. Switch to Work mode" },
-            ) {
-                Text(if (workspaceSettings.active == Workspace.WORK) "𝒫" else "𝒲",
-                    style = MaterialTheme.typography.headlineMedium)
-            }
+                    .padding(start = 88.dp, bottom = 12.dp),
+            )
 
             if (isJournal && uiState.doubleXEnabled) FloatingActionButton(
                 onClick = onOpenDoubleX,
@@ -857,7 +853,7 @@ private fun SettingsScreen(
                     Text("Enable Work mode", Modifier.weight(1f))
                     androidx.compose.material3.Switch(checked = workspaceSettings.enabled, onCheckedChange = onWorkModeEnabled)
                 }
-                Text("Adds a 𝒲/𝒫 button beside Settings on Notes. Work has its own notes and to-do list. Turning this off keeps your work files.",
+                Text("Adds a Work / Personal button on Notes and To Do. Work has its own notes and to-do list. Turning this off keeps your work files.",
                     style = MaterialTheme.typography.bodyMedium)
                 HorizontalDivider()
                 if (workspaceSettings.active == Workspace.PERSONAL) {
@@ -1456,8 +1452,8 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Enable Work mode in Settings to add a 𝒲/𝒫 switch beside Settings on Notes. Work has its own Notes and To Do tabs, with files kept in the Work subfolder.")
-            Text("Double X Day is now on Journal only. Work sync uses a separate encrypted feed, available at j4notes.pages.dev/work with your usual JNotes sign-in.")
+            Text("The Work / Personal switch now uses matching LaTeX calligraphic icons on Notes and To Do. To Do has more space beneath the viewing options.")
+            Text("The Work website stays in Work with no Personal switch. Completed web tasks are grouped above open tasks, and web search has been removed.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

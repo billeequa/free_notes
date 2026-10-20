@@ -15,15 +15,14 @@ import org.json.JSONObject
 
 class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(context,params) {
     override suspend fun doWork(): Result {
-        val personal = syncWorkspace(Workspace.PERSONAL)
-        if (personal != Result.success()) return personal
-        // Disabled installations do not construct a work repository, database or scheduler.
-        if (SyncRuntime.enabled(applicationContext) &&
+        // A repair or transient error in Personal must not prevent a linked Work feed from syncing.
+        // Disabled installations still never construct a Work repository or database.
+        val workEnabled = SyncRuntime.enabled(applicationContext) &&
             (AppSettingsRepository(applicationContext).workspaceSettings.first().enabled ||
-                applicationContext.getDatabasePath("web-sync-work.db").exists())) {
-            return syncWorkspace(Workspace.WORK)
-        }
-        return personal
+                applicationContext.getDatabasePath("web-sync-work.db").exists())
+        val workspaces = if (workEnabled) listOf(Workspace.PERSONAL, Workspace.WORK)
+            else listOf(Workspace.PERSONAL)
+        return syncWorkspaces(workspaces, ::syncWorkspace)
     }
 
     private suspend fun syncWorkspace(workspace: Workspace): Result = withContext(Dispatchers.IO) {
@@ -127,5 +126,15 @@ class SyncWorker(context: Context, params: WorkerParameters): CoroutineWorker(co
             catch(e:Exception){SyncRuntime.status(applicationContext,"Saved on phone — sync paused; retry or recover in Settings",workspace);Result.retry()}
             finally{key?.fill(0)}
         }
+    }
+}
+
+/** Try each independent feed and preserve retries without starving the other workspace. */
+internal suspend fun syncWorkspaces(workspaces: List<Workspace>, sync: suspend (Workspace) -> androidx.work.ListenableWorker.Result): androidx.work.ListenableWorker.Result {
+    val results = workspaces.map { sync(it) }
+    return when {
+        results.any { it == androidx.work.ListenableWorker.Result.retry() } -> androidx.work.ListenableWorker.Result.retry()
+        results.any { it != androidx.work.ListenableWorker.Result.success() } -> androidx.work.ListenableWorker.Result.failure()
+        else -> androidx.work.ListenableWorker.Result.success()
     }
 }

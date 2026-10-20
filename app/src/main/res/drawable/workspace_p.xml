@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TeX calligraphic glyph: Copyright (c) 2009-2018 The MathJax Consortium.
+     Apache-2.0; see assets/licenses/mathjax.txt. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp" android:height="28dp"
+    android:viewportWidth="1100" android:viewportHeight="900">
+    <group android:translateX="174" android:translateY="765" android:scaleY="-1">
+        <path android:fillColor="#FF000000" android:pathData="M37 475Q19 475 19 487Q19 536 103 604T327 682Q329 682 344 682T380 682T421 683H463Q625 683 695 615Q718 591 726 564Q733 547 733 525Q733 412 607 312T321 205H312Q293 205 293 217Q293 224 302 236T333 260T385 274Q558 287 614 407Q633 445 633 477Q633 515 612 543T556 585T481 607T399 614H370L368 603Q352 463 312 312T242 82T202 -13Q190 -33 164 -45T121 -57Q108 -57 108 -45Q108 -40 120 -10T151 73T192 190T233 349T266 539Q267 546 269 565T272 598T274 613H270Q209 613 163 588Q131 572 113 518Q102 502 80 490T37 475Z" />
+    </group>
+</vector>
