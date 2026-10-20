@@ -1,3 +1,11 @@
+## 1.6.1
+
+- Use bundled TeX calligraphic P/W buttons on Notes and To Do, and correct the short-list To Do starting position and header spacing.
+- Pin the dedicated Work website to its own document/feed with no Personal navigation; keep switching available on the main site.
+- Remove web search and place completed tasks in themed year/month folders above open tasks.
+- Attempt Work sync independently of Personal repair/retry failures.
+- Verify the deployed production bundle and Work entry from CI; publish new signed versions after successful main Android checks when permanent signing secrets are configured.
+
 # 1.6.0
 
 Add optional Personal/Work mode switching on Android and web, independent Work local files/index/trash/queues and encrypted cloud feed, work-only `/work` website entry, session locking between web modes, and scoped encrypted backups. Keep Double X Day on Journal only. Preserve the personal v1 protocol and files.

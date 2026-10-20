@@ -264,7 +264,9 @@ header {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 2.2rem;
+  margin-bottom: 1.6rem;
+  padding-bottom: 1.3rem;
+  border-bottom: 1px solid var(--line);
 }
 header .eyebrow {
   margin-bottom: 0.6rem;
@@ -272,28 +274,6 @@ header .eyebrow {
 .toolbar {
   display: flex;
   gap: 0.6rem;
-}
-.search {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  border-bottom: 1px solid var(--line);
-  padding: 0.5rem 0;
-  margin-bottom: 1.8rem;
-}
-.search input {
-  border: 0;
-  padding: 0.5rem 0;
-  outline: none;
-}
-.search > span {
-  font-size: 1.6rem;
-  color: var(--muted);
-}
-.search small {
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 0.75rem;
 }
 .content {
   display: grid;
@@ -437,25 +417,32 @@ details:focus-within {
   padding: 0.4rem 0.7rem;
 }
 .archive {
-  margin-top: 1.5rem;
-  background: var(--archive);
-  border-radius: 12px;
-  padding: 1rem;
-}
-.archive > details {
-  margin-top: 0.8rem;
-  padding: 0.6rem;
-  border: 1px solid var(--archive-line);
-  border-radius: 9px;
+  margin: 0 0 0.5rem;
+  background: color-mix(in srgb, var(--surface), var(--green) 12%);
+  border-radius: 16px;
+  padding: 0;
 }
 .archive summary {
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
   color: var(--archive-text);
-  margin-bottom: 0.4rem;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
 }
-.archive .task {
-  margin-top: 0.5rem;
-}
+.archive summary::-webkit-details-marker { display: none; }
+.archive summary::before { content: "›"; font-size: 1.4rem; line-height: 1; }
+.archive details[open] > summary::before,
+.archive[open] > summary::before { transform: rotate(90deg); }
+.archive summary span { flex: 1; }
+.archive summary small { font-size: 0.8rem; font-weight: 500; }
+.archive-folders { padding: 0 0.6rem 0.7rem; }
+.archive-folder { border: 1px solid var(--archive-line); border-radius: 12px; margin-top: 0.5rem; }
+.archive-folder > summary { padding: 0.85rem; font-size: 0.9rem; }
+.archive-items { display: grid; gap: 0.5rem; padding: 0 0.5rem 0.65rem; }
+.archive .task { margin: 0; }
 .document-card {
   display: block;
   text-align: left;
@@ -830,3 +817,28 @@ select:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
   --text: #f1f0f6; --muted: #c4c1d0; --line: #383740;
   --hover: #191a24; --selected: #1b1e30; --active: #252b42; --active-text: #d4dcff;
 }
+
+/* One bundled TeX glyph for both main-site modes, including on small screens. */
+.workspace-switch {
+  position: fixed;
+  left: max(20px, env(safe-area-inset-left));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 30;
+  width: 56px;
+  height: 56px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 16px;
+  background: var(--active);
+  color: var(--active-text);
+  box-shadow: 0 3px 12px #0002;
+}
+.workspace-switch:hover { background: var(--hover); }
+.workspace-glyph { display: block; width: 32px; height: 28px; }
+.has-workspace-switch .account { padding-bottom: 4.8rem; }
+.has-workspace-switch .main { padding-bottom: 6.5rem; }
+.work-option { display: flex; align-items: center; gap: 0.7rem; }
+.work-option input { width: auto; margin: 0; }

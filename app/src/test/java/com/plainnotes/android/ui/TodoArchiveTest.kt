@@ -118,7 +118,15 @@ class TodoArchiveTest {
         val noOpenRows = groupedTodoRows(emptyList(), archive, emptyList())
         assertEquals(noOpenRows.size + 1, todoOpenListIndex(noOpenRows))
         assertEquals(0, todoOpenListIndex(emptyList()))
-        assertEquals(1, todoOpenListIndex(listOf(TodoListRow.Task(open))))
+        assertEquals(0, todoOpenListIndex(listOf(TodoListRow.Task(open))))
+    }
+
+    @Test fun firstActiveTaskKeepsTheViewingHeaderVisibleWithShortLists() {
+        val first = TodoItem(title = "Only task")
+        val second = TodoItem(title = "Second task")
+        val archive = todoArchive(listOf(first, second), today, zone)
+        assertEquals(0, todoOpenListIndex(groupedTodoRows(listOf(first), archive, emptyList())))
+        assertEquals(0, todoOpenListIndex(groupedTodoRows(listOf(first, second), archive, emptyList())))
     }
 
     @Test fun collapsedOldHistoryDoesNotEmitTaskRows() {

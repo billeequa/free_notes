@@ -31,7 +31,7 @@ billeequa/free_notes is public. JNotes checks GitHub Releases for newer APKs wit
 
 1. Increase versionCode AND versionName in app/build.gradle.kts.
 2. Update releases/NOTES.md.
-3. Merge tested changes and run Actions > Publish signed Jnotes release > Run workflow.
+3. Merge tested changes. After the main Android build and startup checks succeed, Publish signed Jnotes release runs automatically when the version is not already published. Actions > Publish signed Jnotes release > Run workflow can also retry publication after configuring signing secrets.
 
 The workflow uses the permanent signing secrets, tests, builds, verifies the APK, and publishes a release. APK asset names must be jnotes-<versionCode>.apk. Reusing a version/tag intentionally fails instead of replacing an existing release. Download the existing release if retrying a completed publication.
 

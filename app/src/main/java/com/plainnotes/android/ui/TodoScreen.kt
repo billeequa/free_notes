@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.onLongClick
 import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.unit.dp
+import com.plainnotes.android.data.WorkspaceSettings
 import com.plainnotes.android.data.TodoItem
 import com.plainnotes.android.data.TodoFlag
 import com.plainnotes.android.data.flagMask
@@ -72,6 +73,8 @@ fun TodoScreen(
     viewModel: PlainNotesViewModel,
     snackbar: SnackbarHostState,
     onNotes: () -> Unit,
+    workspaceSettings: WorkspaceSettings,
+    onSwitchWorkspace: () -> Unit,
     jumpToOpenRequest: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
@@ -134,7 +137,7 @@ fun TodoScreen(
         if (state.todosLoaded && scrollToTaskId != null) {
             val taskIndex = rows.indexOfFirst { it is TodoListRow.Task && it.item.id == scrollToTaskId }
             if (taskIndex >= 0) {
-                listState.animateScrollToItem(taskIndex + 1)
+                listState.animateScrollToItem(if (taskIndex == 0) 0 else taskIndex + 1)
                 scrollToTaskId = null
                 positioned = true
             }
@@ -156,12 +159,13 @@ fun TodoScreen(
             filter = "Normal"
         } else {
             val index = todoOpenListIndex(rows)
-            scope.launch { listState.animateScrollToItem(index, scrollOffset = activeScrollOffset) }
+            scope.launch { listState.animateScrollToItem(index, scrollOffset = if (index > 0) activeScrollOffset else 0) }
         }
     }
     LaunchedEffect(jumpToOpenRequest, state.todosLoaded) {
         if (jumpToOpenRequest > 0 && state.todosLoaded) jumpToLatest()
     }
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
@@ -212,7 +216,7 @@ fun TodoScreen(
                 verticalArrangement = Arrangement.Top,
             ) {
                 item(key = "filter-header") {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("View", style = MaterialTheme.typography.labelLarge)
                 Box {
                     Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.clickable { filterMenu = true }) {
@@ -430,6 +434,13 @@ fun TodoScreen(
             }
             }
         }
+    }
+    if (workspaceSettings.enabled) WorkspaceSwitchButton(
+        workspace = workspaceSettings.active,
+        onClick = onSwitchWorkspace,
+        modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding()
+            .padding(start = 20.dp, bottom = 12.dp),
+    )
     }
     if (creating || editingId != null) {
         val original = allItems.find { it.id == editingId }

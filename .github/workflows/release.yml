@@ -1,6 +1,10 @@
 name: Publish signed Jnotes release
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Android build and tests"]
+    types: [completed]
+    branches: [main]
 permissions:
   contents: write
 concurrency:
@@ -8,20 +12,51 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Check whether this version is already published
+        id: publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(python3 -c 'import pathlib,re; print(re.search(r"versionName = \"([0-9.]+)\"", pathlib.Path("app/build.gradle.kts").read_text()).group(1))')
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "This version is already published."
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check permanent signing configuration
+        if: steps.publication.outputs.needed == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.JNOTES_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.JNOTES_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.JNOTES_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.JNOTES_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD" || {
+            echo "::error::Permanent signing secrets are missing. Configure the four JNOTES secrets described in docs/UPDATES.md; never commit the signing backup."
+            exit 1
+          }
       - uses: actions/setup-java@v4
+        if: steps.publication.outputs.needed == 'true'
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        if: steps.publication.outputs.needed == 'true'
         with:
           packages: platform-tools platforms;android-36 build-tools;36.0.0
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
+        if: steps.publication.outputs.needed == 'true'
       - name: Build with permanent signing key
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        if: steps.publication.outputs.needed == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.JNOTES_KEYSTORE_BASE64 }}
           JNOTES_KEYSTORE: ${{ runner.temp }}/jnotes-release.jks
@@ -44,9 +79,11 @@ jobs:
           pathlib.Path('releases/current.json').write_text(json.dumps(dict(version=data['versionName'], versionCode=data['versionCode'], file=file, sha256=hashlib.sha256(artifact.read_bytes()).hexdigest())))
           PY
       - name: Verify and publish
+        if: steps.publication.outputs.needed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           python3 - <<'PY'
           import hashlib, json, pathlib, re, subprocess, os
@@ -62,5 +99,5 @@ jobs:
           badging = subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/aapt', 'dump', 'badging', str(apk)], text=True)
           assert "name='com.plainnotes.android'" in badging.splitlines()[0]
           assert f"versionCode='{code}'" in badging.splitlines()[0]
-          subprocess.run(['gh', 'release', 'create', 'v'+metadata['version'], str(apk), '--target', os.environ['GITHUB_SHA'], '--title', 'Jnotes '+metadata['version'], '--notes-file', 'releases/NOTES.md'], check=True)
+          subprocess.run(['gh', 'release', 'create', 'v'+metadata['version'], str(apk), '--target', os.environ['RELEASE_SHA'], '--title', 'Jnotes '+metadata['version'], '--notes-file', 'releases/NOTES.md'], check=True)
           PY

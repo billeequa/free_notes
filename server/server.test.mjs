@@ -61,7 +61,8 @@ test("host exposes only public config and rejects service-role/admin credentials
 test("Pages output carries validated public config and the portable host's security headers", async () => {
   const root = await mkdtemp(join(tmpdir(), "jnotes-pages-test-"));
   try {
-    await writeFile(join(root, "index.html"), "JNotes");
+    const html = '<html><head><title>JNotes</title></head><body><script src="/assets/notebook.js"></script></body></html>';
+    await writeFile(join(root, "index.html"), html);
     await configurePages(root, {
       ...env,
       WEB_URL: "",
@@ -74,6 +75,11 @@ test("Pages output carries validated public config and the portable host's secur
       web_url: "https://jnotes-test.pages.dev",
     });
     assert.ok(!config.includes("must-never-ship"));
+    const work = await readFile(join(root, "work", "index.html"), "utf8");
+    assert.ok(work.includes('<meta name="jnotes-workspace" content="work">'));
+    assert.ok(work.includes("<title>JNotes · Work</title>"));
+    assert.ok(work.includes('src="/assets/notebook.js"'));
+    assert.equal(await readFile(join(root, "index.html"), "utf8"), html);
     const headers = await readFile(join(root, "_headers"), "utf8");
     assert.ok(headers.startsWith("/*\n"));
     for (const [name, value] of Object.entries(
@@ -127,4 +133,17 @@ test("static handler blocks writes and path escape and returns no-store config",
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("production verification rejects stale bundles and Work redirects into Personal", async () => {
+  const { checkPages } = await import("./verify-pages.mjs");
+  const index = '<html><head></head><script src="/assets/current.js"></script></html>';
+  const origin = "https://notes.example.test";
+  const work = index.replace("<head>", '<head><meta name="jnotes-workspace" content="work">');
+  const response = (url, html) => ({ ok: true, status: 200, url, text: async () => html });
+  await checkPages(index, origin, async url => response(url, url.includes("/work?") ? work : index));
+  await assert.rejects(checkPages(index, origin, async url => response(url.includes("/work?") ? origin + "/" : url, index)), /redirected outside/);
+  await assert.rejects(checkPages(index, origin, async url => response(url, index.replace("current.js", "old.js"))), /different app bundle/);
+  await assert.rejects(checkPages(index, origin, async url => response(url, index)), /wrong notebook entry/);
 });

@@ -1,10 +1,10 @@
-# JNotes 1.6.0 — Personal and Work
+# JNotes 1.6.1
 
-- Enable Work mode in Settings, then use 𝒲/𝒫 beside Settings on the Notes page to switch. The button names the destination.
-- Work contains only Notes and To Do. Its files, trash, metadata index and sync queue are separate, inside your selected folder's Work subfolder.
-- Keep Double X Day on the personal Journal tab.
-- Sync Work with https://j4notes.pages.dev/work using the same JNotes email/password. Work uses a separate encrypted feed and derived record key; personal records are never downloaded by the Work view.
-- Website settings can show a 𝒲/𝒫 switch. Changing web modes locks the current notebook and requires sign-in again.
-- Turning the Work switch off preserves all work files. Existing personal files and cloud history keep their current formats and identities.
+- Use matching LaTeX calligraphic Work / Personal icons on Notes and To Do. The To Do switch is at the lower left.
+- Keep the View controls fully visible for a short To Do list, with more space before the first task.
+- Work sync is attempted even when Personal sync needs repair or a retry.
+- The dedicated website at https://j4notes.pages.dev/work stays in Work, with no Personal toggle or sign-in link. The main website can still switch between both scopes.
+- Work has its own entry document and encrypted feed; Personal records are never substituted into Work.
+- Web search is removed, with a simpler header and matching folder styling for completed tasks above open tasks.
 
-Install **jnotes-29.apk** over the existing app. Enable Work mode in Settings. If Web Sync is already enabled, Work sync starts automatically; otherwise the existing sign-in and upload preview cover enabled work content too.
+Install jnotes-30.apk over the existing installation. Phone files, selected-folder permissions and readable note/task formats are preserved.

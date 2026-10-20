@@ -12,6 +12,9 @@ type AuthMode =
   | "save-recovery";
 import { newPayload, type Payload } from "../../protocol/types";
 import "./style.css";
+import { WorkspaceGlyph } from "./WorkspaceGlyph";
+import { resolveWorkspace, workspaceDestination } from "./workspace";
+import { completedTaskFolders } from "./todoArchive";
 const themes = {
   light: "Paper", light_2: "Sunshine", light_3: "Sage",
   dark_1: "Forest", dark_2: "Charcoal", dark_3: "Midnight",
@@ -32,7 +35,9 @@ function download(name: string, text: string, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function App() {
-  const workMode = /^\/work\/?$/.test(window.location.pathname);
+  const { workspace, workOnly } = resolveWorkspace(window.location.pathname, window.location.search,
+    document.querySelector<HTMLMetaElement>('meta[name="jnotes-workspace"]')?.content === "work");
+  const workMode = workspace === "work";
   const [workEnabled, setWorkEnabled] = useState(() => {
     try { return localStorage.getItem("jnotes-work-enabled") === "true"; } catch { return false; }
   });
@@ -75,7 +80,6 @@ function App() {
     [code, setCode] = useState(""),
     [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("task"),
-    [search, setSearch] = useState(""),
     [version, update] = useState(0),
     [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<Payload | null>(null),
@@ -100,7 +104,7 @@ function App() {
   readyRef.current = ready;
   useEffect(() => {
     let cancelled = false;
-    Cloud.connect(workMode ? "work" : "personal")
+    Cloud.connect(workspace)
       .then(async (c) => {
         if (cancelled) return;
         setCloud(c);
@@ -179,7 +183,6 @@ function App() {
             setSelected(null);
           }
           setHistory(null);
-          setSearch("");
           setMessage(
             unsaved
               ? "Session locked. Sign in again to recover the unsaved draft kept in this tab."
@@ -336,10 +339,10 @@ function App() {
     setDraft(null);
     setBase(undefined);
     setHistory(null);
-    setSearch("");
     setMessage("");
   }
   async function switchWorkspace() {
+    if (workOnly) return;
     if (dirty && !(await save())) return;
     if (inFlight.current || cloud?.pending.size || cloud?.conflicts.size) {
       setMessage("Finish syncing or resolve conflicts before switching modes.");
@@ -348,7 +351,7 @@ function App() {
     setBusy(true);
     await cloud?.logout();
     // Full navigation discards this scope's decrypted records and keys.
-    window.location.assign(workMode ? "/" : "/work");
+    window.location.assign(workspaceDestination(workOnly, workspace));
   }
   async function openEntry(e: Entry) {
     if (dirty && !(await save())) return;
@@ -423,7 +426,6 @@ function App() {
       setBase(undefined);
       setSelected(null);
       setHistory(null);
-      setSearch("");
       setMessage("Signed out. Phone files remain available.");
     }
   }
@@ -438,12 +440,9 @@ function App() {
   const all = cloud ? [...cloud.entries.values()] : [];
   const entries = all.filter(
     (e) =>
-      (tab === "trash"
+      tab === "trash"
         ? e.remote.deleted
-        : !e.remote.deleted && e.payload.kind === tab) &&
-      `${e.payload.title} ${e.payload.body} ${e.payload.description}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
+        : !e.remote.deleted && e.payload.kind === tab,
   );
   const tasks = entries
     .filter((e) => !e.payload.completed_at)
@@ -455,6 +454,8 @@ function App() {
         Date.parse(b.payload.completed_at!) -
         Date.parse(a.payload.completed_at!),
     );
+  const completedFolders = completedTaskFolders(completed);
+  const showWorkspaceSwitch = !workOnly && (workEnabled || workMode);
   function taskCard(e: Entry) {
     const p = e.payload;
     const mask = p.flags.reduce(
@@ -716,7 +717,7 @@ function App() {
               </div>
             </>
           )}
-          {workMode && <p className="footnote">Use your usual JNotes email and password. This view loads only Work. For account setup or recovery, <a href="/">open Personal sign-in</a>.</p>}
+          {workMode && <p className="footnote">Use your usual JNotes email and password. This view loads only Work.{!workOnly && <> For account setup or recovery, <a href="/">open Personal sign-in</a>.</>}</p>}
           <p className="footnote">
             Set your JNotes password on this website once. Then use the same
             email and password here and in your phone’s Settings → Web Sync.
@@ -727,7 +728,7 @@ function App() {
     );
   }
   return (
-    <div className="workspace">
+    <div className={`workspace${showWorkspaceSwitch ? " has-workspace-switch" : ""}`}>
       <aside>
         <div className="brand">
           <span>J</span> JNotes
@@ -759,12 +760,6 @@ function App() {
               </small>
             </button>
           ))}
-          {(workEnabled || workMode) && <button className="workspace-switch" disabled={busy}
-            aria-label={workMode ? "Switch to Personal mode. Sign-in required." : "Switch to Work mode. Sign-in required."}
-            title="Switching locks this notebook and requires a fresh sign-in."
-            onClick={() => void switchWorkspace().catch((e) => { setMessage(e.message); setBusy(false); })}>
-            <span>{workMode ? "𝒫" : "𝒲"}</span>{workMode ? "Personal mode" : "Work mode"}
-          </button>}
         </nav>
         <div className="account">
           <span className="dot" /> Online · encrypted
@@ -773,6 +768,12 @@ function App() {
           <button onClick={() => void logout()}>Sign out</button>
         </div>
       </aside>
+      {showWorkspaceSwitch && <button className="workspace-switch" disabled={busy}
+        aria-label={workMode ? "Switch to Personal mode. Sign-in required." : "Switch to Work mode. Sign-in required."}
+        title={workMode ? "Switch to Personal mode" : "Switch to Work mode"}
+        onClick={() => void switchWorkspace().catch((e) => { setMessage(e.message); setBusy(false); })}>
+        <WorkspaceGlyph letter={workMode ? "P" : "W"} />
+      </button>}
       <main className="main">
         <header>
           <div>
@@ -882,8 +883,8 @@ function App() {
                 ))}
               </select>
             </label>
-            <h2>Work mode</h2>
-            <label className="work-option"><input type="checkbox" checked={workEnabled} onChange={(e) => enableWork(e.target.checked)} />Show the 𝒲/𝒫 mode switch</label>
+            {!workOnly && <><h2>Work mode</h2>
+            <label className="work-option"><input type="checkbox" checked={workEnabled} onChange={(e) => enableWork(e.target.checked)} />Show the Work / Personal mode switch</label></>}
             <p>Work has separate notes, tasks, trash and history. Bookmark <a href="/work">j4notes.pages.dev/work</a> for work-only access. Switching modes requires a fresh sign-in.</p>
             <h2>Web Sync</h2>
             <p>
@@ -958,22 +959,23 @@ function App() {
           </section>
         ) : (
           <>
-            <div className="search">
-              <span>⌕</span>
-              <input
-                aria-label="Search your records"
-                placeholder="Search your words…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <small>
-                {entries.length} {tab === "task" ? "tasks" : "entries"}
-              </small>
-            </div>
             <div className={`content ${selected ? "with-editor" : ""}`}>
               <section className="record-list">
                 {tab === "task" ? (
                   <>
+                    {completed.length > 0 && (
+                      <details className="archive">
+                        <summary><span>✅ Completed</span><small>{completed.length}</small></summary>
+                        <div className="archive-folders">
+                          {completedFolders.map(folder => (
+                            <details className="archive-folder" key={folder.id}>
+                              <summary><span>{folder.title}</span><small>{folder.items.length}</small></summary>
+                              <div className="archive-items">{folder.items.map(taskCard)}</div>
+                            </details>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                     {tasks.length === 0 && (
                       <div className="empty">
                         <h2>A clear page.</h2>
@@ -981,30 +983,7 @@ function App() {
                       </div>
                     )}
                     {tasks.map(taskCard)}
-                    {completed.length > 0 && (
-                      <details className="archive">
-                        <summary>Completed · {completed.length}</summary>
-                        {Object.entries(
-                          completed.reduce<Record<string, Entry[]>>(
-                            (groups, e) => {
-                              (groups[e.payload.completed_at!.slice(0, 7)] ??=
-                                []).push(e);
-                              return groups;
-                            },
-                            {},
-                          ),
-                        )
-                          .sort(([a], [b]) => b.localeCompare(a))
-                          .map(([month, items]) => (
-                            <details key={month}>
-                              <summary>
-                                {month} · {items!.length}
-                              </summary>
-                              {items!.map(taskCard)}
-                            </details>
-                          ))}
-                      </details>
-                    )}
+
                   </>
                 ) : (
                   entries
