@@ -112,7 +112,12 @@ test("static handler blocks writes and path escape and returns no-store config",
     return { status, headers, body };
   }
   try {
-    assert.equal((await request("/")).body.toString(), "JNotes");
+    for (const path of ["/", "/work", "/work/"]) {
+      const response = await request(path);
+      assert.equal(response.status, 200);
+      assert.equal(response.body.toString(), "JNotes");
+      assert.equal(response.headers.Location, undefined);
+    }
     const config = await request("/config.json");
     assert.equal(config.status, 200);
     assert.deepEqual(JSON.parse(config.body), publicConfig(env));
