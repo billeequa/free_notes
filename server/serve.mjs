@@ -70,7 +70,7 @@ export async function handle(req, res, config, root) {
       res.end(req.method === "HEAD" ? undefined : JSON.stringify(config));
       return;
     }
-    const location = resolve(root, "." + (path === "/" ? "/index.html" : path));
+    const location = resolve(root, "." + (["/", "/work", "/work/"].includes(path) ? "/index.html" : path));
     if (!location.startsWith(root + sep)) {
       res.writeHead(404, headers);
       res.end();

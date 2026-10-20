@@ -18,6 +18,8 @@ class AppSettingsRepository(private val context: Context) {
     private val fontScaleKey = stringPreferencesKey("font_scale")
     private val noteSortModeKey = stringPreferencesKey("note_sort_mode")
     private val doubleXEnabledKey = booleanPreferencesKey("double_x_enabled")
+    private val workModeEnabledKey = booleanPreferencesKey("work_mode_enabled")
+    private val workModeActiveKey = booleanPreferencesKey("work_mode_active")
     private val showReaderKey = booleanPreferencesKey("show_e_reader")
     private val bookFoldersKey = stringPreferencesKey("book_folder_uris")
 
@@ -38,6 +40,19 @@ class AppSettingsRepository(private val context: Context) {
     }.distinctUntilChanged()
 
     val doubleXEnabled: Flow<Boolean> = context.dataStore.data.map { it[doubleXEnabledKey] ?: false }.distinctUntilChanged()
+    val workspaceSettings: Flow<WorkspaceSettings> = context.dataStore.data.map {
+        val enabled = it[workModeEnabledKey] ?: false
+        WorkspaceSettings(enabled, if (enabled && it[workModeActiveKey] == true) Workspace.WORK else Workspace.PERSONAL)
+    }.distinctUntilChanged()
+
+    suspend fun setWorkModeEnabled(enabled: Boolean) { context.dataStore.edit {
+        it[workModeEnabledKey] = enabled
+        if (!enabled) it[workModeActiveKey] = false
+    } }
+    suspend fun setWorkspace(workspace: Workspace) { context.dataStore.edit {
+        it[workModeActiveKey] = it[workModeEnabledKey] == true && workspace == Workspace.WORK
+    } }
+
     val showReader: Flow<Boolean> = context.dataStore.data.map { it[showReaderKey] ?: true }.distinctUntilChanged()
     val bookFolders: Flow<List<Uri>> = context.dataStore.data.map { prefs ->
         prefs[bookFoldersKey]?.split('\n')?.filter(String::isNotBlank)?.map(Uri::parse).orEmpty()

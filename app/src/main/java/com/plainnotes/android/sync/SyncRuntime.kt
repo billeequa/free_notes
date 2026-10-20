@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.work.*
 import com.plainnotes.android.data.NotesRepository
+import com.plainnotes.android.data.Workspace
 import com.plainnotes.android.data.TodoItem
 import com.plainnotes.android.model.EditableNote
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -25,36 +26,36 @@ object SyncRuntime {
     val localChanges=MutableSharedFlow<Unit>(extraBufferCapacity=1)
     fun prefs(c: Context)=c.applicationContext.getSharedPreferences("web-sync",Context.MODE_PRIVATE)
     fun enabled(c: Context)=prefs(c).getBoolean("enabled",false)
-    fun store(c: Context): SyncStore = stores.getOrPut(c.applicationContext.filesDir.path) {SyncStore(c.applicationContext)}
-    fun status(c: Context,text: String) {prefs(c).edit().putString("status",text).apply()}
-    fun captureNote(c: Context,note: EditableNote,previous: Uri?=null) {
+    fun store(c: Context, workspace: Workspace = Workspace.PERSONAL): SyncStore = stores.getOrPut(c.applicationContext.filesDir.path + workspace.name) {SyncStore(c.applicationContext,workspace)}
+    fun status(c: Context,text: String,workspace: Workspace = Workspace.PERSONAL) {prefs(c).edit().putString(if(workspace == Workspace.WORK) "work_status" else "status",text).apply()}
+    fun captureNote(c: Context,note: EditableNote,previous: Uri?=null,workspace: Workspace = Workspace.PERSONAL) {
         if(!enabled(c))return
         try {
-            val s=store(c);val local="note:${note.documentUri}"
+            val s=store(c,workspace);val local="note:${note.documentUri}"
             if(previous!=null)s.move("note:$previous",local)
             val id=s.idFor(local)
             if(s.capture(local,SyncPayload.note(note,id),note.isTrashed))schedule(c)
-        }catch(e:Exception){status(c,"Saved on phone — sync queue needs repair")}
+        }catch(e:Exception){status(c,"Saved on phone — sync queue needs repair",workspace)}
     }
-    fun prepareLocalMove(c: Context,source: EditableNote,updated: EditableNote,targetName: String,rawText: String? = null) {
+    fun prepareLocalMove(c: Context,source: EditableNote,updated: EditableNote,targetName: String,rawText: String? = null,workspace: Workspace = Workspace.PERSONAL) {
         if(!enabled(c))return
         try {
-            val s=store(c);val id=s.idFor("note:${source.documentUri}")
+            val s=store(c,workspace);val id=s.idFor("note:${source.documentUri}")
             val intent=JSONObject().put("id",id).put("payload",SyncPayload.note(updated,id)).put("deleted",updated.isTrashed)
                 .put("source",source.documentUri.toString()).put("expected",SyncPayload.canonical(SyncPayload.note(source,id)))
                 .put("record_content",s.record(id)!!.content).put("target_name",targetName)
             if(rawText!=null)intent.put("raw_text",rawText)
             s.setApply(id,intent)
-        }catch(e:Exception){status(c,"Saved on phone — move identity needs sync repair")}
+        }catch(e:Exception){status(c,"Saved on phone — move identity needs sync repair",workspace)}
     }
-    fun completeLocalMove(c: Context,uri: Uri) {
+    fun completeLocalMove(c: Context,uri: Uri,workspace: Workspace = Workspace.PERSONAL) {
         if(!enabled(c))return
-        try {val s=store(c);s.byLocal("note:$uri")?.let {s.clearApply(it.id)}}catch(e:Exception){status(c,"Saved on phone — sync repair needed")}
+        try {val s=store(c,workspace);s.byLocal("note:$uri")?.let {s.clearApply(it.id)}}catch(e:Exception){status(c,"Saved on phone — sync repair needed",workspace)}
     }
-    fun captureTodos(c: Context,items: List<TodoItem>,schedule: Boolean=true,previous: List<TodoItem>? = null) {
+    fun captureTodos(c: Context,items: List<TodoItem>,schedule: Boolean=true,previous: List<TodoItem>? = null,workspace: Workspace = Workspace.PERSONAL) {
         if(!enabled(c))return
         try {
-            val s=store(c)
+            val s=store(c,workspace)
             val changed=if(previous==null)captureTodosStrict(s,items) else {
                 val old=previous.associateBy {it.id};val current=items.associateBy {it.id};var changed=false
                 for(t in items)if(t!=old[t.id]) {s.idFor("task:${t.id}");changed=s.capture("task:${t.id}",SyncPayload.task(t),false)||changed}
@@ -62,7 +63,7 @@ object SyncRuntime {
                 changed
             }
             if(changed&&schedule)SyncRuntime.schedule(c)
-        }catch(e:Exception){status(c,"Saved on phone — sync queue needs repair")}
+        }catch(e:Exception){status(c,"Saved on phone — sync queue needs repair",workspace)}
     }
     fun captureTodosStrict(s: SyncStore,items: List<TodoItem>): Boolean {
         var changed=false
@@ -184,14 +185,14 @@ object SyncRuntime {
     }
     /** Explicit repair only: verified phone backup, then preserve both sides as conflicts.
      * This never replaces or deletes phone files and never accepts an empty server implicitly. */
-    suspend fun repair(c: Context) = workerMutex.withLock {
-        val s=store(c);val prefs=prefs(c);val repo=NotesRepository(c)
+    suspend fun repair(c: Context,workspace: Workspace = Workspace.PERSONAL) = workerMutex.withLock {
+        val s=store(c,workspace);val prefs=prefs(c);val repo=NotesRepository(c,workspace)
         require(repo.rootFolderUri().first()?.toString()==s.meta("root_uri")){"Relink the original notes folder before repairing sync"}
         val backup=repo.backupForSync()
-        val secret=SyncSecrets(c).read();val key=SyncCrypto.unb64(secret.getString("key"))
+        val secret=SyncSecrets(c).read();val master=SyncCrypto.unb64(secret.getString("key"));val key=if(workspace==Workspace.WORK)SyncCrypto.expand(master,"workspace/work").also {master.fill(0)} else master
         try {
             val connection=SyncConnection.prepareSession(c,secret,s.meta("deployment"))
-            val api=connection.api
+            val api=connection.api.also {it.workspace=workspace}
             api.refresh();require(api.session!!.getJSONObject("user").getString("id")==s.meta("owner")){"Cloud account differs"}
             secret.put("session",api.session).put("api_origin",api.url);SyncSecrets(c).save(secret)
             val state=api.vault();val vault=state.optJSONObject("vault") ?: error("Cloud vault missing. Re-provisioning requires a new reviewed link.")
@@ -214,7 +215,7 @@ object SyncRuntime {
             for(record in s.records()) {
                 val r=remote[record.id]
                 if(r==null)s.resetBase(record.id) else {
-                    val plain=SyncCrypto.open(key,r.getJSONObject("envelope"),SyncCrypto.aad(s.meta("deployment"),s.meta("owner"),s.meta("key_id"),record.id,r.getLong("revision"),r.getBoolean("deleted")))
+                    val plain=SyncCrypto.open(key,r.getJSONObject("envelope"),SyncCrypto.aad(workspace.recordDeployment(s.meta("deployment")),s.meta("owner"),s.meta("key_id"),record.id,r.getLong("revision"),r.getBoolean("deleted")))
                     val payload=SyncPayload.validate(JSONObject(String(plain,Charsets.UTF_8)),record.id)
                     val phone=JSONObject(record.content)
                     s.accept(record.id,record.local,r,payload,phone,record.deleted)
@@ -222,15 +223,15 @@ object SyncRuntime {
                 }
             }
             s.setMeta("epoch",epoch);s.setMeta("cursor","0");s.setMeta("floor","0")
-            prefs.edit().putString("backup",backup).putString("status","Phone backup verified — cloud re-baseline approved; review conflicts").commit()
+            prefs.edit().putString("backup",backup).putString(if(workspace==Workspace.WORK)"work_status" else "status","Phone backup verified — cloud re-baseline approved; review conflicts").commit()
             schedule(c,periodic=true)
         }finally{key.fill(0)}
     }
 
-    suspend fun resolve(c: Context,id: String,choice: String) {
-        val s=store(c);val conflict=s.conflicts().first {it.getString("id")==id};val r=s.record(id)?:return
+    suspend fun resolve(c: Context,id: String,choice: String,workspace: Workspace = Workspace.PERSONAL) {
+        val s=store(c,workspace);val conflict=s.conflicts().first {it.getString("id")==id};val r=s.record(id)?:return
         val remote=conflict.getJSONObject("remote");val rp=conflict.getJSONObject("remote_content")
-        val phone=JSONObject(r.content);val repository=NotesRepository(c)
+        val phone=JSONObject(r.content);val repository=NotesRepository(c,workspace)
         if(choice=="remote") {
             val archived=JSONObject(phone.toString()).put("id",UUID.randomUUID().toString()).put("title",phone.getString("title")+" (discarded conflict)")
             val archivedLocal=repository.applySyncRecord(archived,true,null,null,s) ?: error("Cannot preserve discarded conflict")

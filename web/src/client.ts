@@ -6,6 +6,7 @@ import {
   checkBootstrap,
   decodeJSON,
   derive,
+  expand,
   jsonBytes,
   open,
   random,
@@ -65,7 +66,7 @@ export class Cloud {
       base: number;
     }
   >();
-  private constructor(readonly config: Config) {
+  private constructor(readonly config: Config, readonly workspace: "personal" | "work" = "personal") {
     if (
       !config.supabase_url ||
       !config.publishable_key ||
@@ -110,11 +111,11 @@ export class Cloud {
       },
     });
   }
-  static async connect() {
+  static async connect(workspace: "personal" | "work" = "personal") {
     const response = await fetch("/config.json", { cache: "no-store" });
     if (!response.ok)
       throw Error("Host configuration is missing. See server/README.md.");
-    const c = new Cloud(await response.json());
+    const c = new Cloud(await response.json(), workspace);
     const { data, error } = await c.api
       .from("public_bootstrap")
       .select("*")
@@ -125,6 +126,11 @@ export class Cloud {
     return c;
   }
   async rpc<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
+    const scoped = ["get_vault", "get_changes", "commit_operation", "get_history", "ack_cursor"];
+    if (this.workspace === "work") {
+      if (scoped.includes(name)) name = `work_${name}`;
+      else if (name !== "finish_password") throw Error("Open Personal mode and sign in to manage your account.");
+    }
     const { data, error } = await this.api.rpc(name, args);
     if (error) {
       if (error.message.includes("CLOUD_STATE_CHANGED"))
@@ -190,6 +196,11 @@ export class Cloud {
         });
       }
       if (this.key.length !== 32) throw Error("Invalid vault key");
+      if (this.workspace === "work") {
+        const master = this.key;
+        this.key = expand(master, "workspace/work");
+        master.fill(0);
+      }
       await this.refresh();
     } catch (e) {
       await this.logout();
@@ -248,6 +259,7 @@ export class Cloud {
     }
   }
   async createNotebook(password: string): Promise<string | null> {
+    if (this.workspace === "work") throw Error("Open Personal mode to manage your account.");
     if (password.length < 12) throw Error("Use at least 12 characters.");
     const state = await this.rpc<{ vault: Vault | null; high_water: number }>(
       "get_vault",
@@ -333,6 +345,7 @@ export class Cloud {
     }
   }
   async unlockFromEmail(password: string) {
+    if (this.workspace === "work") throw Error("Open Personal mode to manage your account.");
     const keys = await derive(password, this.bootstrap);
     try {
       await this.loadVault();
@@ -365,6 +378,7 @@ export class Cloud {
     }
   }
   async recoverFromEmail(code: string, password: string) {
+    if (this.workspace === "work") throw Error("Open Personal mode to manage your account.");
     await this.loadVault();
     const rk = recoveryKey(code);
     try {
@@ -395,6 +409,7 @@ export class Cloud {
     }
   }
   async changePassword(password: string) {
+    if (this.workspace === "work") throw Error("Open Personal mode to manage your account.");
     if (password.length < 12) throw Error("Use at least 12 characters.");
     await this.loadVault();
     const keys = await derive(password, this.bootstrap);
@@ -433,7 +448,7 @@ export class Cloud {
         this.key,
         r.envelope,
         recordAAD(
-          this.bootstrap.deployment_id,
+          this.workspace === "work" ? `${this.bootstrap.deployment_id}/work` : this.bootstrap.deployment_id,
           this.owner,
           this.vault.key_id,
           r.id,
@@ -507,6 +522,7 @@ export class Cloud {
   ): Promise<Entry | null> {
     const generation = this.generation;
     validatePayload(payload, payload.id);
+    if (this.workspace === "work" && payload.kind === "journal") throw Error("Work mode supports notes and tasks.");
     let pending = this.pending.get(payload.id);
     if (
       pending &&
@@ -538,7 +554,7 @@ export class Cloud {
         this.vault.key_id,
         jsonBytes(payload),
         recordAAD(
-          this.bootstrap.deployment_id,
+          this.workspace === "work" ? `${this.bootstrap.deployment_id}/work` : this.bootstrap.deployment_id,
           this.owner,
           this.vault.key_id,
           payload.id,
@@ -678,6 +694,7 @@ export class Cloud {
     }
     return {
       format: "jnotes.encrypted-export.v1",
+      workspace: this.workspace,
       bootstrap: this.bootstrap,
       owner_uid: this.owner,
       vault: state.vault,

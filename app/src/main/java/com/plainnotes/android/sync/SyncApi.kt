@@ -1,5 +1,6 @@
 package com.plainnotes.android.sync
 
+import com.plainnotes.android.data.Workspace
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -8,6 +9,7 @@ import java.net.URL
 
 /** Only public API key and derived authentication credential leave the client. */
 class SyncApi(url: String, val publicKey: String, var session: JSONObject? = null, val connection: SyncConnection.Service? = null) {
+    var workspace: Workspace = Workspace.PERSONAL
     val url = SyncConnection.origin(url)
     init { SyncConnection.checkPublicKey(publicKey) }
     fun request(path: String, body: JSONObject? = null, method: String = if(body==null)"GET" else "POST", authorized: Boolean = true): String {
@@ -36,7 +38,7 @@ class SyncApi(url: String, val publicKey: String, var session: JSONObject? = nul
     fun bootstrap(): JSONObject = JSONArray(request("/rest/v1/public_bootstrap?select=*",authorized=false)).getJSONObject(0)
     fun signIn(email: String, auth: String): JSONObject = JSONObject(request("/auth/v1/token?grant_type=password",JSONObject().put("email",email).put("password",auth),authorized=false)).also {session=it}
     fun refresh(): JSONObject = JSONObject(request("/auth/v1/token?grant_type=refresh_token",JSONObject().put("refresh_token",session!!.getString("refresh_token")),authorized=false)).also {session=it}
-    fun rpc(name: String, args: JSONObject = JSONObject()): String = request("/rest/v1/rpc/$name",args)
+    fun rpc(name: String, args: JSONObject = JSONObject()): String = request("/rest/v1/rpc/${workspace.rpc(name)}",args)
     fun vault(): JSONObject = JSONObject(rpc("get_vault"))
     class InvalidCredentials : IOException("Email or password is incorrect. First time? Tap Set up my password on the website below.")
     class SetupRequired : IOException("Finish setting up your password on the website first, then sign in here.")

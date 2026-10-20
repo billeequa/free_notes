@@ -11,6 +11,7 @@ export async function configurePages(root, env = process.env) {
     WEB_URL: env.WEB_URL || env.CF_PAGES_URL,
   });
   await stat(resolve(root, "index.html"));
+  // Keep Pages' native SPA fallback: rewriting to /index.html triggers its canonical root redirect.
   await writeFile(resolve(root, "config.json"), JSON.stringify(config) + "\n");
   await writeFile(
     resolve(root, "_headers"),

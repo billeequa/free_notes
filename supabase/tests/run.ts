@@ -169,6 +169,35 @@ await denied("select ack_cursor($1,$2,0)", [device, epoch]);
 await db.exec(
   "reset role;revoke select on vaults,records,record_history,client_devices from authenticated",
 );
+// Work has an independent cursor and immutable history; exact UUID reuse cannot cross feeds.
+await as("anon");
+for (const table of ["work_records", "work_record_history", "work_client_devices"])
+  await denied(`select * from ${table}`);
+await denied("select work_get_vault()");
+await as("authenticated", other, otherSession);
+await denied("select work_get_vault()");
+await as("authenticated", owner, session);
+const workState = await scalar("select work_get_vault() as v");
+assert.equal(workState.high_water, 0);
+assert.notEqual(workState.epoch, epoch);
+const workEnvelope = { ...envelope, ciphertext_with_tag: Buffer.alloc(32, 9).toString("base64") };
+const workCommit = await scalar("select work_commit_operation($1,0,$2,$3,$4,0,$5,false) as v", [workState.epoch, op, device, id, workEnvelope]);
+assert.equal(workCommit.seq, 1);
+assert.equal(workCommit.revision, 1);
+assert.equal((await scalar("select get_vault() as v")).high_water, 26);
+assert.equal((await scalar("select work_get_changes($1,0,50) as v", [workState.epoch])).changes.length, 1);
+assert.equal((await scalar("select work_get_history($1) as v", [id]))[0].envelope.ciphertext_with_tag, workEnvelope.ciphertext_with_tag);
+assert.equal((await scalar("select get_history($1) as v", [id])).length, 26);
+await denied("select work_get_changes($1,0,50)", [epoch]);
+await denied("select get_changes($1,0,50)", [workState.epoch]);
+for (const table of ["work_records", "work_record_history", "work_client_devices"])
+  await denied(`select * from ${table}`);
+await db.exec("reset role;grant select on work_records,work_record_history,work_client_devices to authenticated");
+await as("authenticated", other, otherSession);
+assert.equal(await scalar("select count(*)::int as v from work_records"), 0);
+await denied("select work_get_history($1)", [id]);
+await db.exec("reset role;revoke select on work_records,work_record_history,work_client_devices from authenticated");
+console.log("PASS: isolated Work RPCs, grants/RLS, same-id records, history, replay IDs and independent epochs/cursors.");
 // Deleting a Supabase session enforces global revocation even before JWT expiration.
 await db.query("delete from auth.sessions where id=$1", [session]);
 await as("authenticated", owner, session);
@@ -230,6 +259,16 @@ assert.equal(
   await scalar("select deployment_id::text as v from public_bootstrap"),
   bootstrap.deployment_id,
 );
+// Work export restore retains every Personal ciphertext and its epoch.
+const restoredPersonalEpoch = await scalar("select epoch::text as v from jnotes_private.owner_account");
+const workArchive = { ...archive, workspace: "work", epoch: workState.epoch, high_water: 1,
+  changes: [{ id, revision:1, seq:1, envelope:workEnvelope, deleted:false, op_id:op }] };
+await db.exec("delete from public.work_records;delete from public.work_record_history;delete from public.work_client_devices");
+await db.exec(restoreSQL(workArchive));
+assert.equal(await scalar("select count(*)::int as v from work_record_history"), 1);
+assert.equal(await scalar("select count(*)::int as v from record_history"), 26);
+assert.equal(await scalar("select epoch::text as v from jnotes_private.owner_account"), restoredPersonalEpoch);
+console.log("PASS: Work encrypted-export restore preserves the matching Personal vault, feed and epoch.");
 console.log(
   "PASS: encrypted-export restore drill: exact ciphertext/history, preserved bootstrap, new epoch and invalidated sessions.",
 );

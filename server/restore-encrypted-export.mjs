@@ -7,6 +7,7 @@ const uuid = (s) =>
 export function restoreSQL(archive) {
   if (
     archive.format !== "jnotes.encrypted-export.v1" ||
+    ![undefined, "personal", "work"].includes(archive.workspace) ||
     !uuid(archive.owner_uid) ||
     !uuid(archive.vault?.key_id) ||
     !uuid(archive.bootstrap?.deployment_id) ||
@@ -38,7 +39,7 @@ export function restoreSQL(archive) {
   }
   // Data goes only through a properly escaped SQL text literal on psql stdin.
   const json = JSON.stringify(archive).replaceAll("'", "''");
-  return `begin;
+  let sql = `begin;
  do $restore$
  declare a jsonb := '${json}'::jsonb; u uuid := (a->>'owner_uid')::uuid; v jsonb := a->'vault'; b jsonb := a->'bootstrap'; e jsonb;
  begin
@@ -61,6 +62,18 @@ export function restoreSQL(archive) {
   delete from auth.sessions where user_id=u;
  end $restore$;
  commit;`;
+  if (archive.workspace === "work") {
+    // Work restores require the matching existing Personal identity/key; never replace its vault or bootstrap.
+    sql = sql.replaceAll("public.records", "public.work_records")
+      .replaceAll("public.record_history", "public.work_record_history")
+      .replaceAll("jnotes_private.owner_account", "jnotes_private.work_owner_account");
+    sql = sql.replace(" or exists(select 1 from public.vaults)", "");
+    sql = sql.replace(/  update public\.public_bootstrap[^;]+;/,
+      "  if not exists(select 1 from public.public_bootstrap where deployment_id=(b->>'deployment_id')::uuid and kdf_salt=b->>'kdf_salt') then raise exception 'RESTORE_MATCHING_PERSONAL_BOOTSTRAP_FIRST'; end if;");
+    sql = sql.replace(/  insert into public\.vaults[^;]+;/,
+      "  if not exists(select 1 from public.vaults where owner_uid=u and key_id=(v->>'key_id')::uuid) then raise exception 'RESTORE_MATCHING_PERSONAL_VAULT_FIRST'; end if;");
+  }
+  return sql;
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (process.argv[3] !== "--empty-development-target")

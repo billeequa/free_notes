@@ -1,5 +1,6 @@
 package com.plainnotes.android.sync
 
+import com.plainnotes.android.data.Workspace
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
@@ -9,7 +10,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** Private sync sidecar. Existing document files and NoteIndex remain authoritative. */
-class SyncStore(context: Context) : SQLiteOpenHelper(context, "web-sync.db", null, 1) {
+class SyncStore(context: Context, val workspace: Workspace = Workspace.PERSONAL) : SQLiteOpenHelper(context, if (workspace == Workspace.WORK) "web-sync-work.db" else "web-sync.db", null, 1) {
     data class Record(val local: String, val id: String, val revision: Long, val base: String?, val baseDeleted: Boolean, val content: String, val deleted: Boolean)
     data class Operation(val op: String, val id: String, val expected: Long, val content: String, val deleted: Boolean, val envelope: String?)
     override fun onConfigure(db: SQLiteDatabase) { db.setForeignKeyConstraintsEnabled(true) }

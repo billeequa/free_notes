@@ -10,16 +10,18 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.plainnotes.android.data.NotesRepository
+import com.plainnotes.android.data.Workspace
 import com.plainnotes.android.model.NoteCategory
 import com.plainnotes.android.sync.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 @Composable
-fun WebsiteSettings() {
+fun WebsiteSettings(workspace: Workspace = Workspace.PERSONAL) {
     val context = LocalContext.current
     val prefs = remember { SyncRuntime.prefs(context) }
     val uriHandler = LocalUriHandler.current
@@ -30,25 +32,28 @@ fun WebsiteSettings() {
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+    val address = website.trimEnd('/') + if (workspace == Workspace.WORK) "/work" else ""
     Text("Website", style = MaterialTheme.typography.titleMedium)
     TextButton(onClick = {
         error = null
-        try { uriHandler.openUri(website) }
+        try { uriHandler.openUri(address) }
         catch(_: IllegalArgumentException) { error = "No browser is available. Open the address above on another device." }
-    }) { Text(website) }
+    }) { Text(address) }
     error?.let { Text(it,style=MaterialTheme.typography.bodySmall) }
 }
 
 /** Dormant unless opened. KDF/network/preview never run during normal app startup. */
 @Composable
-fun WebSyncSettings() {
+fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
     val context=LocalContext.current.applicationContext
     val scope=rememberCoroutineScope()
+    val statusKey=if(workspace==Workspace.WORK)"work_status" else "status"
+    val lastSyncKey=if(workspace==Workspace.WORK)"work_last_sync" else "last_sync"
     val uriHandler=LocalUriHandler.current
     val prefs=remember {SyncRuntime.prefs(context)}
     var expanded by remember {mutableStateOf(false)}
     var enabled by remember {mutableStateOf(SyncRuntime.enabled(context))}
-    var status by remember {mutableStateOf(prefs.getString("status","Saved on phone — sync disabled")!!)}
+    var status by remember {mutableStateOf(prefs.getString(statusKey,"Saved on phone — sync disabled")!!)}
     var useCustom by remember {mutableStateOf(SyncConnection.customWebsite(context)!=null)}
     var customWeb by remember {mutableStateOf(SyncConnection.customWebsite(context).orEmpty())}
     var email by remember {mutableStateOf(prefs.getString("email","")!!)}
@@ -66,32 +71,32 @@ fun WebSyncSettings() {
     DisposableEffect(Unit) { onDispose {setup?.key?.fill(0);setup?.recoveryCode=null} }
     LaunchedEffect(expanded,enabled) {
         if(expanded)while(true) {
-            status=prefs.getString("status","Saved on phone")!!
-            if(enabled){counts=withContext(Dispatchers.IO){SyncRuntime.store(context).count()};conflicts=withContext(Dispatchers.IO){SyncRuntime.store(context).conflicts()}}
+            status=prefs.getString(statusKey,"Saved on phone")!!
+            if(enabled){counts=withContext(Dispatchers.IO){SyncRuntime.store(context,workspace).count()};conflicts=withContext(Dispatchers.IO){SyncRuntime.store(context,workspace).conflicts()}}
             delay(1500)
         }
     }
     fun run(block:suspend()->Unit) {scope.launch {busy=true;error=null;try{block()}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(e:Exception){error=e.message ?: "Sync setup paused. Phone files are safe."}finally{busy=false}}}
     Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Text("Web Sync",style=MaterialTheme.typography.titleMedium)
+        Text(if(workspace==Workspace.WORK)"Work Web Sync" else "Web Sync",style=MaterialTheme.typography.titleMedium)
         Text(status,style=MaterialTheme.typography.bodyMedium)
-        Text("Optional. Your phone's notes and tasks remain readable and editable without an account or server.",style=MaterialTheme.typography.bodySmall)
+        Text("Optional. Sync covers Personal and enabled Work mode in separate encrypted feeds. Your phone files remain available without an account or server.",style=MaterialTheme.typography.bodySmall)
         if(!expanded)TextButton(onClick={expanded=true}){Text(if(enabled)"Manage Web Sync" else "Set up Web Sync")}
         if(expanded) {
             if(enabled) {
                 Text(email)
-                Text("Pending: $counts · Last sync: "+prefs.getLong("last_sync",0).let {if(it==0L)"Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))})
+                Text("Pending: $counts · Last sync: "+prefs.getLong(lastSyncKey,0).let {if(it==0L)"Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))})
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.retry(context)}}},enabled=!busy){Text("Sync now")}
-                    OutlinedButton(onClick={SyncRuntime.disable(context);enabled=false},enabled=!busy){Text("Disable sync")}
+                    OutlinedButton(onClick={SyncRuntime.disable(context);enabled=false},enabled=!busy){Text("Disable all sync")}
                 }
                 Text("Disabling sync keeps every phone file and the cloud copy. Recovery or reconnecting also never deletes local files.",style=MaterialTheme.typography.bodySmall)
-                OutlinedButton(enabled=!busy,onClick={run{val path=withContext(Dispatchers.IO){NotesRepository(context).backupForSync()};status="Verified local backup: $path"}}){Text("Export verified phone backup")}
+                OutlinedButton(enabled=!busy,onClick={run{val path=withContext(Dispatchers.IO){NotesRepository(context,workspace).backupForSync()};status="Verified local backup: $path"}}){Text("Export verified phone backup")}
                 TextButton(enabled=!busy,onClick={SyncRuntime.disable(context);enabled=false;setup=null}){Text("Sign in again")}
                 if(status.contains("repair",ignoreCase=true)||status.contains("Cloud state changed",ignoreCase=true)) {
                     Text("Repair keeps phone files, backs up both local content and sync evidence, and retains differing cloud versions as conflicts. Type REPAIR to explicitly approve a new cloud baseline.",style=MaterialTheme.typography.bodySmall)
                     OutlinedTextField(repairText,{repairText=it},label={Text("Repair confirmation")},modifier=Modifier.fillMaxWidth())
-                    Button(enabled=!busy&&repairText=="REPAIR",onClick={run{withContext(Dispatchers.IO){SyncRuntime.repair(context)};repairText=""}}){Text("Back up and repair cloud link")}
+                    Button(enabled=!busy&&repairText=="REPAIR",onClick={run{withContext(Dispatchers.IO){SyncRuntime.repair(context,workspace)};repairText=""}}){Text("Back up and repair cloud link")}
                 }
                 conflicts.forEach { conflict ->
                     OutlinedButton(onClick={comparison=conflict}){Text("Resolve: "+conflict.getJSONObject("local").optString("title","Untitled"))}
@@ -108,7 +113,11 @@ fun WebSyncSettings() {
                     preview=withContext(Dispatchers.IO){
                         val repo=NotesRepository(context);val docs=repo.listActiveNotes();val trash=repo.listTrashedNotes();val tasks=repo.loadTodos()
                         val bytes=docs.sumOf {n->repo.loadEditableNote(n.documentUri.toString())?.let{it.title.toByteArray().size+it.body.toByteArray().size}?.toLong() ?: 0L}
-                        "${tasks.size} tasks · ${docs.count{it.category==NoteCategory.NOTES}} notes · ${docs.count{it.category==NoteCategory.JOURNAL}} journal entries · ${trash.size} trashed documents\nApproximately ${bytes/1024} KiB of document text, plus tasks and metadata.\nCloud destination: $email\nExisting cloud revisions: ${prepared.vault.getLong("high_water")}"
+                        val work = if(com.plainnotes.android.data.AppSettingsRepository(context).workspaceSettings.first().enabled) {
+                            val workRepo=NotesRepository(context,Workspace.WORK)
+                            "\nWork: ${workRepo.loadTodos().size} tasks · ${workRepo.listActiveNotes().size} notes (separate encrypted feed)"
+                        } else ""
+                        "${tasks.size} tasks · ${docs.count{it.category==NoteCategory.NOTES}} notes · ${docs.count{it.category==NoteCategory.JOURNAL}} journal entries · ${trash.size} trashed documents\nApproximately ${bytes/1024} KiB of document text, plus tasks and metadata.\nCloud destination: $email\nExisting cloud revisions: ${prepared.vault.getLong("high_water")}$work"
                     }
                 }}){Text("Sign in and preview sync")}
                 Text("First time? Create your password on the website once. An email link opens the setup page; no numeric code is needed. Then return here to sign in.",style=MaterialTheme.typography.bodySmall)
@@ -148,7 +157,7 @@ fun WebSyncSettings() {
                 Text("Both versions are preserved until you choose.")
                 Text("Phone: "+conflict.getJSONObject("local").let {it.optString("title")+"\n"+it.optString("body").ifEmpty {it.optString("description")}}.take(1500))
                 Text("Cloud: "+conflict.getJSONObject("remote_content").let {it.optString("title")+"\n"+it.optString("body").ifEmpty {it.optString("description")}}.take(1500))
-                for((choice,label)in listOf("local" to "Keep Phone","remote" to "Keep Web","both" to "Save Both"))Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.resolve(context,conflict.getString("id"),choice)};comparison=null}},enabled=!busy){Text(label)}
+                for((choice,label)in listOf("local" to "Keep Phone","remote" to "Keep Web","both" to "Save Both"))Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.resolve(context,conflict.getString("id"),choice,workspace)};comparison=null}},enabled=!busy){Text(label)}
             }
         },confirmButton={TextButton(onClick={comparison=null}){Text("Later")}})
     }

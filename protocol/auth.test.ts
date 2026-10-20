@@ -4,8 +4,8 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { Cloud } from "../web/src/client";
 import { parseEmailReturn, emailSendError } from "../web/src/authReturn";
-import { b64, derive, open, recoveryKey } from "./crypto";
-import { vaultAAD, type Bootstrap, type Vault } from "./types";
+import { b64, derive, expand, open, recoveryKey, seal, jsonBytes } from "./crypto";
+import { vaultAAD, recordAAD, newPayload, type Bootstrap, type Vault } from "./types";
 
 const owner = "11111111-1111-4111-8111-111111111111";
 const bootstrap: Bootstrap = {
@@ -125,7 +125,12 @@ async function gateway() {
         staged_envelope: null,
         transition_id: null,
       };
-    } else if (url.pathname === "/rest/v1/rpc/get_changes")
+    } else if (url.pathname === "/rest/v1/rpc/work_get_vault")
+      value = { vault, epoch: "work-epoch", high_water: 0 };
+    else if (url.pathname === "/rest/v1/rpc/work_get_changes")
+      value = { changes: [], epoch: "work-epoch", high_water: 0, next_cursor: 0 };
+    else if (url.pathname === "/rest/v1/rpc/work_ack_cursor") value = null;
+    else if (url.pathname === "/rest/v1/rpc/get_changes")
       value = { changes: [], epoch: "epoch", high_water: 0, next_cursor: 0 };
     else if (url.pathname !== "/rest/v1/rpc/ack_cursor") {
       status = 404;
@@ -137,11 +142,11 @@ async function gateway() {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const clients: Cloud[] = [];
-  const client = () => {
+  const client = (workspace: "personal" | "work" = "personal") => {
     const c = new (Cloud as any)({
       supabase_url: `http://127.0.0.1:${(server.address() as any).port}`,
       publishable_key: "sb_publishable_test",
-    }) as Cloud;
+    }, workspace) as Cloud;
     c.bootstrap = bootstrap;
     clients.push(c);
     return c;
@@ -369,4 +374,35 @@ test("retry after a committed setup and unavailable read still displays the orig
   } finally {
     await h.close();
   }
+});
+
+test("work password login fetches only the work feed and retains only a separated work key", async () => {
+  const h = await gateway();
+  try {
+    const personal = h.client();
+    await personal.acceptEmailLink(h.session());
+    await personal.createNotebook(humanPassword);
+    const master = personal.key.slice();
+    const start = h.requests.length;
+    const work = h.client("work");
+    await work.login(user.email, humanPassword);
+    assert.deepEqual(work.key, expand(master, "workspace/work"));
+    assert.notDeepEqual(work.key, master);
+    const rpc = h.requests.slice(start).filter((r) => r.path.includes("/rpc/"));
+    assert.ok(rpc.some((r) => r.path.endsWith("/work_get_changes")));
+    assert.ok(rpc.every((r) => r.path.includes("/work_")));
+    const p = newPayload("note", "Work only");
+    const envelope = await seal(work.key, personal.vault.key_id, jsonBytes(p),
+      recordAAD(bootstrap.deployment_id + "/work", owner, personal.vault.key_id, p.id, 1, false));
+    const remote = { id:p.id, revision:1, seq:1, envelope, deleted:false };
+    assert.equal((await work.decrypt(remote)).title, "Work only");
+    await assert.rejects(personal.decrypt(remote));
+    await assert.rejects(work.changePassword("new notebook password"));
+    await assert.rejects(work.save(newPayload("journal"), undefined));
+    const retained = work.key;
+    await work.logout();
+    assert.ok(retained.every((v) => v === 0));
+    assert.equal(work.entries.size, 0);
+    master.fill(0);
+  } finally { await h.close(); }
 });

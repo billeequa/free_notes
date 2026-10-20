@@ -32,6 +32,14 @@ function download(name: string, text: string, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function App() {
+  const workMode = /^\/work\/?$/.test(window.location.pathname);
+  const [workEnabled, setWorkEnabled] = useState(() => {
+    try { return localStorage.getItem("jnotes-work-enabled") === "true"; } catch { return false; }
+  });
+  function enableWork(enabled: boolean) {
+    setWorkEnabled(enabled);
+    try { localStorage.setItem("jnotes-work-enabled", String(enabled)); } catch { /* Optional preference. */ }
+  }
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const saved = localStorage.getItem("jnotes-theme");
@@ -92,7 +100,7 @@ function App() {
   readyRef.current = ready;
   useEffect(() => {
     let cancelled = false;
-    Cloud.connect()
+    Cloud.connect(workMode ? "work" : "personal")
       .then(async (c) => {
         if (cancelled) return;
         setCloud(c);
@@ -331,6 +339,17 @@ function App() {
     setSearch("");
     setMessage("");
   }
+  async function switchWorkspace() {
+    if (dirty && !(await save())) return;
+    if (inFlight.current || cloud?.pending.size || cloud?.conflicts.size) {
+      setMessage("Finish syncing or resolve conflicts before switching modes.");
+      return;
+    }
+    setBusy(true);
+    await cloud?.logout();
+    // Full navigation discards this scope's decrypted records and keys.
+    window.location.assign(workMode ? "/" : "/work");
+  }
   async function openEntry(e: Entry) {
     if (dirty && !(await save())) return;
     setSelected(e.payload.id);
@@ -520,7 +539,7 @@ function App() {
     const emailOnly = mode === "setup-email" || mode === "recover-email";
     const newPassword = mode === "create" || mode === "recover";
     const titles: Record<AuthMode, string> = {
-      login: "Welcome back.",
+      login: workMode ? "Open your work notebook." : "Welcome back.",
       "setup-email": "Set up your password",
       "recover-email": "Reset your password",
       create: "Create your password",
@@ -534,7 +553,7 @@ function App() {
           <span>J</span> JNotes
         </div>
         <section className="login-card">
-          <p className="eyebrow">YOUR WORDS. YOUR SPACE.</p>
+          <p className="eyebrow">{workMode ? "WORK · NOTES AND TO-DO" : "YOUR WORDS. YOUR SPACE."}</p>
           <h1>{titles[mode]}</h1>
           <p className="muted" role="status" aria-live="polite">
             {message}
@@ -658,7 +677,7 @@ function App() {
                 </button>
               </form>
               <div className="auth-links">
-                {mode === "login" && (
+                {mode === "login" && !workMode && (
                   <>
                     <button
                       className="text-button"
@@ -697,6 +716,7 @@ function App() {
               </div>
             </>
           )}
+          {workMode && <p className="footnote">Use your usual JNotes email and password. This view loads only Work. For account setup or recovery, <a href="/">open Personal sign-in</a>.</p>}
           <p className="footnote">
             Set your JNotes password on this website once. Then use the same
             email and password here and in your phone’s Settings → Web Sync.
@@ -712,7 +732,7 @@ function App() {
         <div className="brand">
           <span>J</span> JNotes
         </div>
-        <p className="eyebrow">YOUR NOTEBOOK</p>
+        <p className="eyebrow">{workMode ? "WORK NOTEBOOK" : "PERSONAL NOTEBOOK"}</p>
         <nav>
           {[
             ["task", "To-Do", "✓"],
@@ -720,7 +740,7 @@ function App() {
             ["journal", "Journal", "◷"],
             ["trash", "Trash", "⌫"],
             ["settings", "Settings", "⚙"],
-          ].map(([id, label, icon]) => (
+          ].filter(([id]) => !workMode || id !== "journal").map(([id, label, icon]) => (
             <button
               key={id}
               className={tab === id ? "active" : ""}
@@ -739,6 +759,12 @@ function App() {
               </small>
             </button>
           ))}
+          {(workEnabled || workMode) && <button className="workspace-switch" disabled={busy}
+            aria-label={workMode ? "Switch to Personal mode. Sign-in required." : "Switch to Work mode. Sign-in required."}
+            title="Switching locks this notebook and requires a fresh sign-in."
+            onClick={() => void switchWorkspace().catch((e) => { setMessage(e.message); setBusy(false); })}>
+            <span>{workMode ? "𝒫" : "𝒲"}</span>{workMode ? "Personal mode" : "Work mode"}
+          </button>}
         </nav>
         <div className="account">
           <span className="dot" /> Online · encrypted
@@ -750,7 +776,7 @@ function App() {
       <main className="main">
         <header>
           <div>
-            <p className="eyebrow">A LITTLE ROOM TO THINK</p>
+            <p className="eyebrow">{workMode ? "WORK" : "A LITTLE ROOM TO THINK"}</p>
             <h1>
               {
                 (
@@ -856,6 +882,9 @@ function App() {
                 ))}
               </select>
             </label>
+            <h2>Work mode</h2>
+            <label className="work-option"><input type="checkbox" checked={workEnabled} onChange={(e) => enableWork(e.target.checked)} />Show the 𝒲/𝒫 mode switch</label>
+            <p>Work has separate notes, tasks, trash and history. Bookmark <a href="/work">j4notes.pages.dev/work</a> for work-only access. Switching modes requires a fresh sign-in.</p>
             <h2>Web Sync</h2>
             <p>
               All records are encrypted on your device. Your phone keeps its own
@@ -876,7 +905,7 @@ function App() {
                   .exportEncrypted()
                   .then((v) =>
                     download(
-                      "jnotes-encrypted-backup.json",
+                      workMode ? "jnotes-work-encrypted-backup.json" : "jnotes-encrypted-backup.json",
                       JSON.stringify(v, null, 2),
                       "application/json",
                     ),
@@ -889,7 +918,7 @@ function App() {
             <button onClick={() => void logout(true)}>
               Sign out all sessions
             </button>
-            <h2>Change password</h2>
+            {!workMode && <><h2>Change password</h2>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -918,7 +947,8 @@ function App() {
                 />
               </label>
               <button disabled={busy}>Change password</button>
-            </form>
+            </form></>}
+            {workMode && <p>Account and password changes are available after signing in to Personal mode.</p>}
             <p className="footnote">
               For hosting, recovery, and moving servers, see the{" "}
               <a href="https://github.com/billeequa/free_notes/blob/main/docs/web-sync/operator-guide.md" target="_blank" rel="noopener noreferrer">operator guide</a>{" "}
