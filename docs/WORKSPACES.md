@@ -6,6 +6,8 @@ Personal files remain directly in the selected notes folder. Work notes and `to_
 
 The personal website is `/`; Work is `/work` (and `/work/`). Both use the same email/password. Enable the mode button in website Settings; the direct Work address always works. Only the active scope's records, trash, conflicts, history, search and counts load. Switching first saves the draft, refuses unresolved operations, locks the current notebook and navigates to a fresh sign-in.
 
+The Cloudflare Pages project `j4notes` must use `main` as its production branch, with automatic production deployments enabled. Branch preview URLs do not update `j4notes.pages.dev`. After changing the production branch, deploy a new `main` commit and verify `/work` on the production address.
+
 ## Cloud boundaries
 
 The existing Personal wire protocol, vault and tables are unchanged. Work uses `work_records`, `work_record_history`, `work_client_devices`, `jnotes_private.work_owner_account` and `work_*` RPCs. They retain the existing confirmed-owner and live-session checks, private-table grants, RLS, immutable history, CAS, quotas and serialized cursors. Epochs, sequence counters and operation IDs are independent. Apply migration `20261020122057_jnotes_work_workspace.sql` before deploying clients.
