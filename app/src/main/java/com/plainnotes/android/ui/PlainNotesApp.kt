@@ -62,6 +62,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
+import android.app.Application
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.plainnotes.android.data.AppSettingsRepository
+import com.plainnotes.android.data.Workspace
+import com.plainnotes.android.data.WorkspaceSettings
+import androidx.compose.runtime.key
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -120,7 +127,41 @@ private enum class AppScreen {
 }
 
 @Composable
-fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
+fun PlainNotesApp() {
+    val application = LocalContext.current.applicationContext as Application
+    val settings = remember { AppSettingsRepository(application) }
+    val selection by remember { settings.workspaceSettings }.collectAsStateWithLifecycle(initialValue = null)
+    val scope = rememberCoroutineScope()
+    val stateHolder = rememberSaveableStateHolder()
+    val configuration = selection ?: return
+    stateHolder.SaveableStateProvider(configuration.active.name) {
+        key(configuration.active) {
+            // Each workspace owns a fixed repository and action queue, including during fast switches.
+            val model: PlainNotesViewModel = viewModel(key = "notes-${configuration.active.name}",
+                factory = remember(configuration.active) { viewModelFactory {
+                    initializer { PlainNotesViewModel(application, configuration.active) }
+                } })
+            PlainNotesAppContent(model, configuration,
+                onSwitchWorkspace = { scope.launch { settings.setWorkspace(
+                    if (configuration.active == Workspace.WORK) Workspace.PERSONAL else Workspace.WORK) } },
+                onWorkModeEnabled = { enabled -> scope.launch {
+                    settings.setWorkModeEnabled(enabled)
+                    if (enabled && com.plainnotes.android.sync.SyncRuntime.enabled(application))
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            runCatching { com.plainnotes.android.sync.SyncRuntime.schedule(application) }
+                        }
+                } })
+        }
+    }
+}
+
+@Composable
+private fun PlainNotesAppContent(
+    viewModel: PlainNotesViewModel,
+    workspaceSettings: WorkspaceSettings,
+    onSwitchWorkspace: () -> Unit,
+    onWorkModeEnabled: (Boolean) -> Unit,
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -138,7 +179,8 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
     var notesTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var journalTopRequest by rememberSaveable { mutableIntStateOf(0) }
     var booksTopRequest by rememberSaveable { mutableIntStateOf(0) }
-    val pages = remember(uiState.showReader) { homePages(uiState.showReader) }
+    val workMode = viewModel.workspace == Workspace.WORK
+    val pages = remember(uiState.showReader, workMode) { homePages(uiState.showReader, workMode) }
     val lifecycleOwner = LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, viewModel) {
         var paused = false
@@ -152,6 +194,7 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    LaunchedEffect(viewModel) { viewModel.onResume() }
     LaunchedEffect(currentScreenName) {
         if (currentScreenName == AppScreen.Trash.name) viewModel.loadTrash()
     }
@@ -265,6 +308,8 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     onMoveCategory = viewModel::moveNoteCategory,
                     snackbarHostState = snackbarHostState,
                     onOpenSettings = { currentScreenName = AppScreen.Settings.name },
+                    workspaceSettings = workspaceSettings,
+                    onSwitchWorkspace = onSwitchWorkspace,
                     onOpenDoubleX = {
                         scope.launch {
                             val note = viewModel.openDoubleXNote()
@@ -310,6 +355,8 @@ fun PlainNotesApp(viewModel: PlainNotesViewModel = viewModel()) {
                     fontScale = uiState.fontScale,
                     doubleXEnabled = uiState.doubleXEnabled,
                     showReader = uiState.showReader,
+                    workspaceSettings = workspaceSettings,
+                    onWorkModeEnabled = onWorkModeEnabled,
                     onBack = { currentScreenName = AppScreen.Notes.name },
                     onPickFolder = { folderPicker.launch(null) },
                     onOpenTrash = { currentScreenName = AppScreen.Trash.name },
@@ -373,6 +420,8 @@ private fun NotesHomeScreen(
     onMoveCategory: (String, NoteCategory) -> Unit,
     snackbarHostState: SnackbarHostState,
     onOpenSettings: () -> Unit,
+    workspaceSettings: WorkspaceSettings,
+    onSwitchWorkspace: () -> Unit,
     onOpenDoubleX: () -> Unit,
     onOpenTodos: () -> Unit,
     onOpenNote: (NoteDocument) -> Unit,
@@ -394,6 +443,7 @@ private fun NotesHomeScreen(
             NotesScreen(
             notes = if (isJournal) uiState.journals else uiState.notes,
             isJournal = isJournal,
+            allowMoveCategory = workspaceSettings.active == Workspace.PERSONAL,
             scrollToTopRequest = scrollToTopRequest,
             onMoveCategory = onMoveCategory,
             isLoading = uiState.isLoading,
@@ -420,7 +470,20 @@ private fun NotesHomeScreen(
                 )
             }
 
-            if (uiState.doubleXEnabled) FloatingActionButton(
+            if (!isJournal && workspaceSettings.enabled) FloatingActionButton(
+                onClick = onSwitchWorkspace,
+                containerColor = MaterialTheme.colorScheme.secondary,
+                contentColor = MaterialTheme.colorScheme.onSecondary,
+                modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding()
+                    .padding(start = 88.dp, bottom = 12.dp)
+                    .semantics { contentDescription = if (workspaceSettings.active == Workspace.WORK)
+                        "Work mode. Switch to Personal mode" else "Personal mode. Switch to Work mode" },
+            ) {
+                Text(if (workspaceSettings.active == Workspace.WORK) "𝒫" else "𝒲",
+                    style = MaterialTheme.typography.headlineMedium)
+            }
+
+            if (isJournal && uiState.doubleXEnabled) FloatingActionButton(
                 onClick = onOpenDoubleX,
                 containerColor = MaterialTheme.colorScheme.secondary,
                 contentColor = MaterialTheme.colorScheme.onSecondary,
@@ -464,6 +527,7 @@ private fun NotesHomeScreen(
 private fun NotesScreen(
     notes: List<NoteDocument>,
     isJournal: Boolean,
+    allowMoveCategory: Boolean,
     scrollToTopRequest: Int,
     onMoveCategory: (String, NoteCategory) -> Unit,
     isLoading: Boolean,
@@ -526,6 +590,7 @@ private fun NotesScreen(
         items(notes, key = { it.id }) { note ->
             NoteListRow(
                 note = note,
+                allowMoveCategory = allowMoveCategory,
                 isMenuExpanded = selectedMenuNoteId == note.id,
                 onOpen = { onOpen(note) },
                 onShowMenu = { selectedMenuNoteId = note.id },
@@ -606,6 +671,7 @@ private fun SortModeBox(
 @Composable
 private fun NoteListRow(
     note: NoteDocument,
+    allowMoveCategory: Boolean,
     isMenuExpanded: Boolean,
     onOpen: () -> Unit,
     onShowMenu: () -> Unit,
@@ -659,7 +725,7 @@ private fun NoteListRow(
                 if (note.noteType == NoteType.NORMAL) DropdownMenuItem(
                     text = { Text("Rename") }, onClick = onRename,
                 )
-                DropdownMenuItem(
+                if (allowMoveCategory) DropdownMenuItem(
                     text = { Text(if (note.category == NoteCategory.JOURNAL) "Move to Notes" else "Move to Journal") },
                     onClick = onMoveCategory,
                 )
@@ -680,6 +746,8 @@ private fun SettingsScreen(
     fontScale: Float,
     doubleXEnabled: Boolean,
     showReader: Boolean,
+    workspaceSettings: WorkspaceSettings,
+    onWorkModeEnabled: (Boolean) -> Unit,
     onBack: () -> Unit,
     onPickFolder: () -> Unit,
     onOpenTrash: () -> Unit,
@@ -780,20 +848,29 @@ private fun SettingsScreen(
                     },
                 )
                 HorizontalDivider()
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (workspaceSettings.active == Workspace.PERSONAL) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Show Double X Day", Modifier.weight(1f))
                     androidx.compose.material3.Switch(checked = doubleXEnabled, onCheckedChange = onDoubleXEnabled)
                 }
                 HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Enable Work mode", Modifier.weight(1f))
+                    androidx.compose.material3.Switch(checked = workspaceSettings.enabled, onCheckedChange = onWorkModeEnabled)
+                }
+                Text("Adds a 𝒲/𝒫 button beside Settings on Notes. Work has its own notes and to-do list. Turning this off keeps your work files.",
+                    style = MaterialTheme.typography.bodyMedium)
+                HorizontalDivider()
+                if (workspaceSettings.active == Workspace.PERSONAL) {
                 Text("E Reader", style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Show E Reader", Modifier.weight(1f))
                     androidx.compose.material3.Switch(checked = showReader, onCheckedChange = onShowReader)
                 }
                 BooksFoldersSettings()
+                }
                 HorizontalDivider()
-                WebsiteSettings()
-                WebSyncSettings()
+                WebsiteSettings(workspaceSettings.active)
+                WebSyncSettings(workspaceSettings.active)
                 HorizontalDivider()
                 UpdateSettings()
                 Button(onClick = onOpenTrash, modifier = Modifier.fillMaxWidth()) {
@@ -1379,8 +1456,8 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Background sync now pauses safely if it cannot start. Your phone notes remain available. Open Settings → Web Sync to retry.")
-            Text("For a fresh installation, choose your existing notes folder. For Web Sync, create your password on the website once, save the recovery code there, then sign in with the same email and password on your phone.")
+            Text("Enable Work mode in Settings to add a 𝒲/𝒫 switch beside Settings on Notes. Work has its own Notes and To Do tabs, with files kept in the Work subfolder.")
+            Text("Double X Day is now on Journal only. Work sync uses a separate encrypted feed, available at j4notes.pages.dev/work with your usual JNotes sign-in.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

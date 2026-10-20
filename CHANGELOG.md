@@ -1,3 +1,7 @@
+# 1.6.0
+
+Add optional Personal/Work mode switching on Android and web, independent Work local files/index/trash/queues and encrypted cloud feed, work-only `/work` website entry, session locking between web modes, and scoped encrypted backups. Keep Double X Day on Journal only. Preserve the personal v1 protocol and files.
+
 # 1.5.2
 
 Discover the JNotes service automatically; normal setup asks only for email/password. Refresh the versioned public directory before enabled sync, retain legacy/custom connections, and follow website/key updates. Backend-origin changes require a fresh login without forwarding old sessions or resetting pending edits and cloud-rollback protection. Keep the labeled website link in sync with discovered configuration.

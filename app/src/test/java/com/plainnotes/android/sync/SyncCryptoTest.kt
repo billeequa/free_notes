@@ -28,4 +28,15 @@ class SyncCryptoTest {
         val e=JSONObject(v.getJSONObject("envelope").toString());val cipher=SyncCrypto.unb64(e.getString("ciphertext_with_tag"));cipher[0]=(cipher[0].toInt() xor 1).toByte();e.put("ciphertext_with_tag",SyncCrypto.b64(cipher))
         assertThrows(Exception::class.java){SyncCrypto.open(key,e,v.getJSONArray("aad").put(6,7).toString())}
     }
+
+    @org.junit.Test fun workKeyMatchesBrowserVectorAndUsesDistinctAAD() {
+        val master=ByteArray(32){it.toByte()}
+        val work=SyncCrypto.expand(master,"workspace/work")
+        assertEquals("8e1f33ba2bffb39b363e743982506013299cb00153e9b99f7dbf5e686949a915",work.joinToString(""){"%02x".format(it.toInt() and 255)})
+        assertFalse(master.contentEquals(work))
+        val aad=SyncCrypto.aad("deployment/work","owner","key","id",1,false)
+        val envelope=SyncCrypto.seal(work,"key","Work text".toByteArray(),aad)
+        assertEquals("Work text",String(SyncCrypto.open(work,envelope,aad)))
+        try {SyncCrypto.open(master,envelope,SyncCrypto.aad("deployment","owner","key","id",1,false));fail("Work must not decrypt with Personal key/AAD") }catch(_:javax.crypto.AEADBadTagException){}
+    }
 }

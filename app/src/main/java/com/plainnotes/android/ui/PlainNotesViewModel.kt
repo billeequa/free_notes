@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.plainnotes.android.data.NotesRepository
+import com.plainnotes.android.data.Workspace
 import com.plainnotes.android.model.EditableNote
 import com.plainnotes.android.model.NoteDocument
 import com.plainnotes.android.model.NoteCategory
@@ -78,12 +79,13 @@ data class PlainNotesUiState(
     val statusMessage: String? = null,
 )
 
-class PlainNotesViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = NotesRepository(application)
+class PlainNotesViewModel(application: Application, val workspace: Workspace = Workspace.PERSONAL) : AndroidViewModel(application) {
+    private val repository = NotesRepository(application, workspace)
     private val todoMutex = Mutex()
     private val todoActions = TodoActionQueue(viewModelScope)
     private var editorSession: NoteEditorSession? = null
     private var selectedRoot: Uri? = null
+    private var selectedIndexRoot: String? = null
     private var refreshJob: Job? = null
     private var trashJob: Job? = null
     private val _uiState = MutableStateFlow(PlainNotesUiState())
@@ -96,7 +98,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
         } }
         viewModelScope.launch {
             repository.noteIndex.collect { snapshot ->
-                if (snapshot != null && snapshot.folderUri == selectedRoot?.toString()) {
+                if (snapshot != null && snapshot.folderUri == selectedIndexRoot) {
                     _uiState.update { state ->
                         val notes = sortNotes(snapshot.notes, state.noteSortMode)
                         state.copy(selectedFolderName = snapshot.folderName, isLoading = false,
@@ -107,7 +109,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
         viewModelScope.launch { repository.doubleXEnabled().collectLatest { enabled ->
-            _uiState.update { it.copy(doubleXEnabled = enabled, doubleXPromptDate = if (enabled) it.doubleXPromptDate else null) }
+            _uiState.update { it.copy(doubleXEnabled = enabled && workspace == Workspace.PERSONAL, doubleXPromptDate = if (enabled) it.doubleXPromptDate else null) }
         } }
         viewModelScope.launch { repository.showReader().collectLatest { enabled ->
             _uiState.update { it.copy(showReader = enabled, hasLoadedReaderConfig = true) }
@@ -117,6 +119,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                 refreshJob?.cancel()
                 trashJob?.cancel()
                 selectedRoot = uri
+                selectedIndexRoot = null
                 editorSession = null
                 _uiState.update { it.copy(notes = emptyList(), journals = emptyList(), trash = emptyList(),
                     todos = emptyList(), todosLoaded = false, todoError = null) }
@@ -134,7 +137,9 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 } else {
                     try {
-                        val cached = repository.loadCachedNotes(uri)
+                        val storageUri = repository.storageFolderUri()
+                        selectedIndexRoot = if (workspace == Workspace.PERSONAL) uri.toString() else storageUri.toString()
+                        val cached = repository.loadCachedNotes(storageUri)
                         _uiState.update { state ->
                             val notes = sortNotes(cached?.notes.orEmpty(), state.noteSortMode)
                             state.copy(hasLoadedStorageConfig = true, isStorageConfigured = true,
@@ -263,7 +268,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     suspend fun openEditor(uri: String): NoteEditorSession? {
-        if(com.plainnotes.android.sync.SyncRuntime.enabled(getApplication())) com.plainnotes.android.sync.SyncRuntime.editing.add(uri)
+        if(repository.syncEnabled()) com.plainnotes.android.sync.SyncRuntime.editing.add(uri)
         editorSession?.let { session ->
             if (session.initialNote.documentUri.toString() == uri || session.savedNote.documentUri.toString() == uri) return session
         }
@@ -368,7 +373,7 @@ class PlainNotesViewModel(application: Application) : AndroidViewModel(applicati
             if (!_uiState.value.todosLoaded) return@withLock false
             val root = selectedRoot
             try {
-                val (before, updated) = if(com.plainnotes.android.sync.SyncRuntime.enabled(getApplication())) repository.changeTodosWithSync(change) else {
+                val (before, updated) = if(repository.syncEnabled()) repository.changeTodosWithSync(change) else {
                     val previous = _uiState.value.todos
                     val next = change(previous)
                     repository.saveTodos(next)

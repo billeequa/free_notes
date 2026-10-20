@@ -23,8 +23,8 @@ internal enum class HomePage(val label: String) {
     EBOOKS("Ebooks"), NOTES("Notes"), JOURNAL("Journal"), TODOS("To Do"),
 }
 
-internal fun homePages(showReader: Boolean): List<HomePage> =
-    HomePage.entries.filter { showReader || it != HomePage.EBOOKS }
+internal fun homePages(showReader: Boolean, workMode: Boolean = false): List<HomePage> =
+    if (workMode) listOf(HomePage.NOTES, HomePage.TODOS) else HomePage.entries.filter { showReader || it != HomePage.EBOOKS }
 
 @Composable
 internal fun HomeTabs(selectedIndex: Int, pages: List<HomePage>, onPage: (Int) -> Unit) {

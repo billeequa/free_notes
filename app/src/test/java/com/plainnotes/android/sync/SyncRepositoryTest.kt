@@ -10,6 +10,8 @@ import com.plainnotes.android.data.AppSettingsRepository
 import com.plainnotes.android.data.NoteFileParser
 import com.plainnotes.android.data.NotesRepository
 import com.plainnotes.android.data.TodoItem
+import com.plainnotes.android.data.Workspace
+import kotlinx.coroutines.flow.first
 import com.plainnotes.android.model.NoteTextContent
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -160,6 +162,69 @@ flags: long_term
         SyncRuntime.disable(context)
         assertEquals(note.body,repo.loadEditableNote(note.documentUri.toString())!!.body)
     }
+    @Test fun workFilesIndexTrashAndTasksStaySeparateAcrossReopening()=runBlocking {
+        val personal=NotesRepository(context)
+        val work=NotesRepository(context,Workspace.WORK)
+        val privateNote=personal.saveNote(personal.createBlankNote().copy(title="Personal",body="Personal body"))
+        val privateTask=TodoItem(title="Personal task")
+        personal.saveTodos(listOf(privateTask))
+        val workNote=work.saveNote(work.createBlankNote().copy(title="Work",body="Work body λ"))
+        val workTask=TodoItem(id=privateTask.id,title="Same id, different workspace")
+        work.saveTodos(listOf(workTask))
+        assertEquals(listOf("Personal"),personal.listActiveNotes().map{it.title})
+        assertEquals(listOf("Work"),work.listActiveNotes().map{it.title})
+        assertEquals(listOf(privateTask),personal.loadTodos())
+        assertEquals(listOf(workTask),work.loadTodos())
+        assertTrue(File(provider.root,"Work/to_do_jnotes.txt").isFile)
+        val workRoot=work.storageFolderUri()
+        assertEquals("Personal",NotesRepository(context).loadCachedNotes(tree)!!.notes.single().title)
+        assertEquals("Work",NotesRepository(context,Workspace.WORK).loadCachedNotes(workRoot)!!.notes.single().title)
+        work.moveToTrash(workNote.documentUri.toString())
+        assertTrue(work.listActiveNotes().isEmpty())
+        assertTrue(personal.listTrashedNotes().isEmpty())
+        val trashed=work.listTrashedNotes().single()
+        work.restoreFromTrash(trashed.id)
+        assertEquals("Work body λ",work.loadEditableNote(work.listActiveNotes().single().id)!!.body)
+        assertEquals("Personal body",personal.loadEditableNote(privateNote.documentUri.toString())!!.body)
+        assertEquals(listOf(workTask),NotesRepository(context,Workspace.WORK).loadTodos())
+    }
+    @Test fun workCloudQueuesReconciliationAndPullsUseOnlyWorkStorage()=runBlocking {
+        SyncRuntime.prefs(context).edit().putBoolean("enabled",true).commit()
+        val personal=NotesRepository(context)
+        val work=NotesRepository(context,Workspace.WORK)
+        // Avoid scheduling in this repository isolation test; strict reconciliation captures directly.
+        SyncRuntime.prefs(context).edit().putBoolean("enabled",false).commit()
+        personal.saveNote(personal.createBlankNote().copy(title="Private",body="Private body"))
+        work.saveNote(work.createBlankNote().copy(title="Office",body="Office body"))
+        val task=TodoItem(title="Office task")
+        work.saveTodos(listOf(task))
+        val workStore=SyncRuntime.store(context,Workspace.WORK)
+        while(!work.reconcileForSync(workStore)) {}
+        assertEquals(setOf("Office","Office task"),workStore.records().map{JSONObject(it.content).getString("title")}.toSet())
+        assertTrue(store.records().isEmpty())
+        while(!personal.reconcileForSync(store)) {}
+        assertEquals(listOf("Private"),store.records().map{JSONObject(it.content).getString("title")})
+        val incoming=SyncPayload.task(task.copy(title="Changed on Work website"))
+        val existing=workStore.record(task.id)!!
+        assertNotNull(work.applySyncRecord(incoming,false,existing.content,existing.local,workStore))
+        assertEquals("Changed on Work website",work.loadTodos().single().title)
+        assertTrue(personal.loadTodos().isEmpty())
+        try {work.reconcileForSync(store);fail("Reject a personal sidecar passed to Work") }catch(_:IllegalArgumentException){}
+    }
+    @Test fun disablingWorkSwitchReturnsToPersonalWithoutRemovingWorkFiles()=runBlocking {
+        val settings=AppSettingsRepository(context)
+        assertFalse(settings.workspaceSettings.first().enabled)
+        settings.setWorkModeEnabled(true);settings.setWorkspace(Workspace.WORK)
+        assertEquals(Workspace.WORK,settings.workspaceSettings.first().active)
+        val work=NotesRepository(context,Workspace.WORK)
+        work.saveTodos(listOf(TodoItem(title="Retain this")))
+        settings.setWorkModeEnabled(false)
+        assertEquals(Workspace.PERSONAL,settings.workspaceSettings.first().active)
+        assertFalse(settings.workspaceSettings.first().enabled)
+        settings.setWorkModeEnabled(true)
+        assertEquals("Retain this",work.loadTodos().single().title)
+    }
+
 }
 
 private class SyncDocumentsProvider(val root:File):android.content.ContentProvider() {

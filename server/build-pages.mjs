@@ -11,6 +11,8 @@ export async function configurePages(root, env = process.env) {
     WEB_URL: env.WEB_URL || env.CF_PAGES_URL,
   });
   await stat(resolve(root, "index.html"));
+  // Explicit SPA rewrite keeps direct /work bookmarks and reloads on the same app.
+  await writeFile(resolve(root, "_redirects"), "/work /index.html 200\n/work/ /index.html 200\n");
   await writeFile(resolve(root, "config.json"), JSON.stringify(config) + "\n");
   await writeFile(
     resolve(root, "_headers"),
