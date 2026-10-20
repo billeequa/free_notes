@@ -6,17 +6,10 @@ A normal update preserves the selected notes folder, its permission, app setting
 
 ## Signing and publishing
 
-The permanent signing identity has been used since 1.3.4. Keep using the existing private signing backup so Android accepts updates in place. Keep the keystore and passwords outside Git, release assets, and logs.
+Read the permanent [release and secret-storage procedure](RELEASING.md) and the root [agent instructions](../AGENTS.md) before handling signing material or starting release work.
 
-The established release process, including 1.6.0, signs the tested APK locally and uploads it to GitHub Releases. It does not require Actions signing secrets.
+Use the existing permanent signing key. Its public certificate is pinned in [signing-certificate.sha256](../releases/signing-certificate.sha256). Keep the keystore and passwords in private secret storage, with an encrypted recovery copy; never put secret values or encrypted transfer payloads in Git or logs.
 
-1. Increase versionCode and versionName in `app/build.gradle.kts`; update `releases/NOTES.md`.
-2. Merge after the required build, web-sync, and release-startup checks pass.
-3. Use the unsigned release APK from that tested commit's Android workflow, or build that commit locally. Sign with the existing permanent key. A local Gradle build accepts `JNOTES_KEYSTORE`, `JNOTES_STORE_PASSWORD`, `JNOTES_KEY_ALIAS`, and `JNOTES_KEY_PASSWORD`.
-4. Verify the APK's package ID, versionCode, optimized-build reflection checks, and signing certificate against the previous published release.
-5. Publish a release tagged `v<versionName>` at the tested commit, attach `jnotes-<versionCode>.apk`, and use `releases/NOTES.md` for its notes.
-6. Confirm GitHub's latest release contains the downloadable APK. The app checks GitHub Releases without an embedded GitHub token.
+The supported paths are local signing on a trusted machine or the manual **Prepare signed JNotes release draft** workflow with the four preconfigured Actions secrets. That workflow prepares a signed draft only. Publication is a separate short operation after verification and a check of the current user instruction. Existing release authorization does not need to be requested again; a later "stop" cancels it.
 
-## Optional Actions publisher
-
-`Publish signed Jnotes release` remains available through Run workflow. That optional path reads the four permanent signing secrets defined in `.github/workflows/release.yml`. It is separate from local signing and does not run automatically after ordinary merges.
+The guide includes the exact secret names, secure provisioning commands, artifact/certificate checks, draft publication and cancellation steps, and the legacy private backup's filename. Missing tools or credentials must be reported before a job starts. Do not use a custom encrypted public-branch handoff as a fallback.

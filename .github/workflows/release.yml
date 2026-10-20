@@ -1,27 +1,67 @@
-name: Publish signed Jnotes release
+name: Prepare signed JNotes release draft
 on:
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+  checks: read
 concurrency:
   group: jnotes-release
   cancel-in-progress: false
 jobs:
-  release:
+  prepare:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      checks: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Require the tested current main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          repo, sha = os.environ['GH_REPO'], os.environ['GITHUB_SHA']
+          main = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/commits/main'], text=True))
+          assert main['sha'] == sha, 'Main changed; prepare the current tested commit instead.'
+          data = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/commits/{sha}/check-runs?per_page=100'], text=True))
+          for name in ('build', 'web-sync', 'release-startup'):
+              matches = [check for check in data['check_runs'] if check['name'] == name and check['app']['slug'] == 'github-actions']
+              assert matches, f'Missing required check: {name}'
+              latest = max(matches, key=lambda check: check['id'])
+              assert latest['status'] == 'completed' and latest['conclusion'] == 'success', f'Required check is not successful: {name}'
+          print('Required checks passed on the exact main commit.')
+          PY
+      - name: Require all permanent signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.JNOTES_KEYSTORE_BASE64 }}
+          JNOTES_STORE_PASSWORD: ${{ secrets.JNOTES_STORE_PASSWORD }}
+          JNOTES_KEY_ALIAS: ${{ secrets.JNOTES_KEY_ALIAS }}
+          JNOTES_KEY_PASSWORD: ${{ secrets.JNOTES_KEY_PASSWORD }}
+        run: |
+          for name in KEYSTORE_BASE64 JNOTES_STORE_PASSWORD JNOTES_KEY_ALIAS JNOTES_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "Missing signing secret: $name. Provision through the official secrets interface; see docs/RELEASING.md."
+              exit 1
+            fi
+          done
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools platforms;android-36 build-tools;36.0.0
           log-accepted-android-sdk-licenses: false
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Build with permanent signing key
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          cache-disabled: true
+      - name: Build with the existing permanent key in private temporary storage
         env:
           KEYSTORE_BASE64: ${{ secrets.JNOTES_KEYSTORE_BASE64 }}
           JNOTES_KEYSTORE: ${{ runner.temp }}/jnotes-release.jks
@@ -30,10 +70,11 @@ jobs:
           JNOTES_KEY_PASSWORD: ${{ secrets.JNOTES_KEY_PASSWORD }}
           UPDATE_REPOSITORY: ${{ vars.JNOTES_UPDATE_REPOSITORY || github.repository }}
         run: |
-          test -n "$KEYSTORE_BASE64" || { echo 'This optional Actions publisher requires permanent signing secrets. For local signing see docs/UPDATES.md.'; exit 1; }
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$JNOTES_KEYSTORE"
+          set -euo pipefail
+          umask 077
           trap 'rm -f "$JNOTES_KEYSTORE"' EXIT
-          bash gradlew testDebugUnitTest assembleRelease -PupdateRepository="$UPDATE_REPOSITORY"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$JNOTES_KEYSTORE"
+          bash gradlew testDebugUnitTest assembleRelease --no-daemon --no-configuration-cache -PupdateRepository="$UPDATE_REPOSITORY"
           python3 - <<'PY'
           import json, pathlib, shutil, hashlib
           root = pathlib.Path('app/build/outputs/apk/release')
@@ -43,13 +84,13 @@ jobs:
           artifact = pathlib.Path('releases') / file
           pathlib.Path('releases/current.json').write_text(json.dumps(dict(version=data['versionName'], versionCode=data['versionCode'], file=file, sha256=hashlib.sha256(artifact.read_bytes()).hexdigest())))
           PY
-      - name: Verify and publish
+      - name: Verify the permanent certificate and prepare a draft only
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           python3 - <<'PY'
-          import hashlib, json, pathlib, re, subprocess, os
+          import hashlib, json, os, pathlib, re, subprocess
           metadata = json.loads(pathlib.Path('releases/current.json').read_text())
           code = int(metadata['versionCode'])
           assert code > 0
@@ -58,9 +99,35 @@ jobs:
           apk = pathlib.Path('releases') / metadata['file']
           assert hashlib.sha256(apk.read_bytes()).hexdigest() == metadata['sha256']
           subprocess.run(['python3', 'tools/check_release_reflection.py', str(apk)], check=True)
-          subprocess.run([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/apksigner', 'verify', '--verbose', str(apk)], check=True)
-          badging = subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/aapt', 'dump', 'badging', str(apk)], text=True)
-          assert "name='com.plainnotes.android'" in badging.splitlines()[0]
-          assert f"versionCode='{code}'" in badging.splitlines()[0]
-          subprocess.run(['gh', 'release', 'create', 'v'+metadata['version'], str(apk), '--target', os.environ['GITHUB_SHA'], '--title', 'Jnotes '+metadata['version'], '--notes-file', 'releases/NOTES.md'], check=True)
+          tools = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/36.0.0'
+          output = subprocess.check_output([str(tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(apk)], text=True)
+          expected = pathlib.Path('releases/signing-certificate.sha256').read_text().strip().lower()
+          assert re.fullmatch(r'[0-9a-f]{64}', expected), 'Invalid public certificate pin'
+          actual = re.findall(r'Signer #\d+ certificate SHA-256 digest:\s*([0-9a-fA-F]+)', output)
+          assert len(actual) == 1 and actual[0].lower() == expected, 'Wrong signing certificate; do not replace the permanent key or pin'
+          badging = subprocess.check_output([str(tools / 'aapt'), 'dump', 'badging', str(apk)], text=True).splitlines()[0]
+          assert "name='com.plainnotes.android'" in badging
+          assert f"versionCode='{code}'" in badging
+          assert f"versionName='{metadata['version']}'" in badging
+          subprocess.run([str(tools / 'zipalign'), '-c', '4', str(apk)], check=True)
+          repo, sha = os.environ['GH_REPO'], os.environ['GITHUB_SHA']
+          main = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/commits/main'], text=True))
+          assert main['sha'] == sha, 'Main changed during preparation'
+          tag = 'v' + metadata['version']
+          existing = subprocess.run(['gh', 'release', 'view', tag, '--json', 'isDraft,targetCommitish,assets'], capture_output=True, text=True)
+          if existing.returncode == 0:
+              draft = json.loads(existing.stdout)
+              assert draft['isDraft'] and draft['targetCommitish'] == sha, 'Refusing to alter a published release or a draft for another commit'
+              assert not any(asset['name'] == metadata['file'] for asset in draft['assets']), 'Draft already has this asset; inspect it before replacing'
+              subprocess.run(['gh', 'release', 'upload', tag, str(apk)], check=True)
+          else:
+              subprocess.run(['gh', 'release', 'create', tag, str(apk), '--draft', '--target', sha, '--title', 'JNotes ' + metadata['version'], '--notes-file', 'releases/NOTES.md'], check=True)
+          print('Verified certificate: ' + expected)
+          print('Verified APK SHA-256: ' + metadata['sha256'])
+          print('Signed draft prepared. Publication is a separate operation; see docs/RELEASING.md.')
           PY
+      - name: Remove temporary signing material
+        if: always()
+        env:
+          JNOTES_KEYSTORE: ${{ runner.temp }}/jnotes-release.jks
+        run: rm -f "$JNOTES_KEYSTORE"

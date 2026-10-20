@@ -46,7 +46,7 @@ The release build enables R8 code shrinking and resource shrinking:
 .\gradlew.bat testDebugUnitTest assembleRelease
 ```
 
-Signing credentials are deliberately absent from the repository. Configure a private release keystore before distributing your own release build. Never commit the keystore, passwords, or `keystore.properties`.
+Signing credentials are deliberately absent from the repository. Official JNotes updates must use the existing permanent signing key; do not generate a replacement. Follow the [release and secret-storage procedure](RELEASING.md) and verify the committed certificate pin. Never commit the keystore, passwords, recovery archive, credential-transfer payload, or `keystore.properties`.
 
 The checked-in [`releases/jnotes_v1.apk`](../releases/jnotes_v1.apk) is the installable v1 build produced from this source baseline. It is provided for direct sideloading and is not a substitute for a Play Store signing configuration.
 

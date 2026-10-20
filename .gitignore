@@ -18,3 +18,13 @@ web/dist/
 !.env.example
 supabase/.temp/
 server/backups/
+
+# Private release signing material and transfer scratch
+*.p12
+*.pfx
+*.key
+*.private.pem
+signing.properties
+signing-credentials.*
+JNotes-signing-backup*.zip
+.release-transfer/

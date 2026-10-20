@@ -1,0 +1,61 @@
+name: Release procedure checks
+on:
+  pull_request:
+    paths:
+      - AGENTS.md
+      - docs/RELEASING.md
+      - .github/workflows/release.yml
+      - .github/workflows/release-policy.yml
+      - releases/signing-certificate.sha256
+  push:
+    branches: [main]
+    paths:
+      - AGENTS.md
+      - docs/RELEASING.md
+      - .github/workflows/release.yml
+      - .github/workflows/release-policy.yml
+      - releases/signing-certificate.sha256
+permissions:
+  contents: read
+jobs:
+  release-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Lint release workflows with a checksum-verified tool
+        run: |
+          archive="$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz --output "$archive"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check --status
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" .github/workflows/release.yml .github/workflows/release-policy.yml
+      - name: Compile embedded release Python without accessing secrets
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          source = pathlib.Path('.github/workflows/release.yml').read_text().splitlines()
+          count = 0
+          cursor = 0
+          while cursor < len(source):
+              line = source[cursor]
+              if line.strip() != "python3 - <<'PY'":
+                  cursor += 1
+                  continue
+              indent = len(line) - len(line.lstrip())
+              cursor += 1
+              body = []
+              while cursor < len(source) and source[cursor] != ' ' * indent + 'PY':
+                  body.append(source[cursor][indent:])
+                  cursor += 1
+              assert cursor < len(source), 'Unclosed Python heredoc'
+              compile('\n'.join(body), f'release-workflow-{count}', 'exec')
+              count += 1
+              cursor += 1
+          assert count == 3, f'Expected three checked Python blocks, found {count}'
+          pin = pathlib.Path('releases/signing-certificate.sha256').read_text().strip()
+          assert len(pin) == 64 and all(char in '0123456789abcdef' for char in pin)
+          print('Release workflow syntax and Python compilation passed.')
+          PY
