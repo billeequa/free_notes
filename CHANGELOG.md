@@ -4,7 +4,7 @@
 - Pin the dedicated Work website to its own document/feed with no Personal navigation; keep switching available on the main site.
 - Remove web search and place completed tasks in themed year/month folders above open tasks.
 - Attempt Work sync independently of Personal repair/retry failures.
-- Verify the deployed production bundle and Work entry from CI; publish new signed versions after successful main Android checks when permanent signing secrets are configured.
+- Verify the deployed production bundle and Work entry from CI.
 
 # 1.6.0
 
