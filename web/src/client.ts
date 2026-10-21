@@ -204,6 +204,8 @@ export class Cloud {
       await this.refresh();
     } catch (e) {
       await this.logout();
+      if (e instanceof Error && e.name === "OperationError")
+        throw Error("Your notebook could not be decrypted. Your saved notes are unchanged.", { cause: e });
       throw e;
     } finally {
       keys.wrap.fill(0);
