@@ -18,3 +18,14 @@ web/dist/
 !.env.example
 supabase/.temp/
 server/backups/
+
+# iOS local build/signing state
+DerivedData/
+ios-build/
+*.xcresult/
+*.xcuserstate
+xcuserdata/
+*.mobileprovision
+*.p12
+*.p8
+ios/Signing.xcconfig
