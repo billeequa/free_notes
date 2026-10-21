@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createCipheriv } from "node:crypto";
 import {
   b64,
   derive,
@@ -33,6 +34,31 @@ const owner = "22222222-2222-4222-8222-222222222222",
   id = "44444444-4444-4444-8444-444444444444";
 const key = Uint8Array.from({ length: 32 }, (_, i) => i),
   nonce = Uint8Array.from({ length: 12 }, (_, i) => i);
+test("Work decrypts Android's fixed slash-escaped AAD vector and writes phone-compatible ciphertext", async () => {
+  const v = JSON.parse(readFileSync(new URL("./work-vectors.json", import.meta.url), "utf8"));
+  const workKey = expand(unb64(v.master_key), "workspace/work");
+  assert.equal(b64(workKey), v.key);
+  assert.equal(new TextDecoder().decode(await open(workKey, v.envelope, v.aad)), v.plaintext);
+  assert.deepEqual(await seal(workKey, v.aad[4], new TextEncoder().encode(v.plaintext), v.aad, Uint8Array.from(unb64(v.envelope.nonce))), v.envelope);
+  await assert.rejects(open(unb64(v.master_key), v.envelope, v.aad));
+  for (const index of [2, 3, 5, 6, 7]) {
+    const changed = [...v.aad];
+    changed[index] = index === 6 ? 8 : index === 7 ? true : "other";
+    await assert.rejects(open(workKey, v.envelope, changed as any));
+  }
+});
+test("older browser Work ciphertext still opens without relaxing its authenticated context", async () => {
+  const v = JSON.parse(readFileSync(new URL("./work-vectors.json", import.meta.url), "utf8"));
+  const cipher = createCipheriv("aes-256-gcm", unb64(v.key), unb64(v.envelope.nonce));
+  cipher.setAAD(Buffer.from(JSON.stringify(v.aad)));
+  const ciphertext = Buffer.concat([cipher.update(v.plaintext, "utf8"), cipher.final(), cipher.getAuthTag()]);
+  const envelope = { ...v.envelope, ciphertext_with_tag: ciphertext.toString("base64") };
+  assert.notEqual(envelope.ciphertext_with_tag, v.envelope.ciphertext_with_tag);
+  assert.equal(new TextDecoder().decode(await open(unb64(v.key), envelope, v.aad)), v.plaintext);
+  await assert.rejects(open(unb64(v.master_key), envelope, v.aad));
+  const changed = [...v.aad]; changed[6]++;
+  await assert.rejects(open(unb64(v.key), envelope, changed as any));
+});
 test("portable full-cost Argon2id credentials and fixed AES-GCM vector", async () => {
   const keys = await derive("JNotes π e\u0301 🔒 password", bootstrap);
   const aad = recordAAD(bootstrap.deployment_id, owner, keyId, id, 7, false);

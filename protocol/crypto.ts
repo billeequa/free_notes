@@ -24,6 +24,12 @@ export function expand(material: Uint8Array, label: string): Uint8Array {
     32,
   );
 }
+/** Android's JSONStringer escapes slashes; the Work deployment contains /work. */
+function aadJSON(aad: AAD): string {
+  const json = JSON.stringify(aad);
+  return aad[0] === "jnotes.record" && aad[2].endsWith("/work")
+    ? json.replaceAll("/", "\\/") : json;
+}
 export function checkBootstrap(b: Bootstrap) {
   if (
     b.protocol_version !== 1 ||
@@ -74,7 +80,7 @@ export async function seal(
     {
       name: "AES-GCM",
       iv: buf(nonce),
-      additionalData: buf(utf8.encode(JSON.stringify(aad))),
+      additionalData: buf(utf8.encode(aadJSON(aad))),
       tagLength: 128,
     },
     k,
@@ -104,18 +110,25 @@ export async function open(
   const k = await crypto.subtle.importKey("raw", buf(key), "AES-GCM", false, [
     "decrypt",
   ]);
-  return new Uint8Array(
-    await crypto.subtle.decrypt(
+  const decrypt = (serialized: string) => crypto.subtle.decrypt(
       {
         name: "AES-GCM",
         iv: buf(unb64(e.nonce)),
-        additionalData: buf(utf8.encode(JSON.stringify(aad))),
+        additionalData: buf(utf8.encode(serialized)),
         tagLength: 128,
       },
       k,
       buf(unb64(e.ciphertext_with_tag)),
-    ),
-  );
+    );
+  const serialized = aadJSON(aad);
+  try {
+    return new Uint8Array(await decrypt(serialized));
+  } catch (error) {
+    // Older web Work records used unescaped JSON. Accept both byte encodings
+    // of the same AAD; never change its scope, identity, revision or deletion bit.
+    if (!(error instanceof Error) || error.name !== "OperationError" || serialized === JSON.stringify(aad)) throw error;
+    return new Uint8Array(await decrypt(JSON.stringify(aad)));
+  }
 }
 export const jsonBytes = (v: unknown) => utf8.encode(JSON.stringify(v));
 export const decodeJSON = <T>(a: Uint8Array): T =>

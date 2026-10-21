@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { createCipheriv } from "node:crypto";
 import { Cloud } from "../web/src/client";
 import { parseEmailReturn, emailSendError } from "../web/src/authReturn";
 import { b64, derive, expand, open, recoveryKey, seal, jsonBytes } from "./crypto";
-import { vaultAAD, recordAAD, newPayload, type Bootstrap, type Vault } from "./types";
+import { vaultAAD, recordAAD, newPayload, type Bootstrap, type Vault, type Remote } from "./types";
 
 const owner = "11111111-1111-4111-8111-111111111111";
 const bootstrap: Bootstrap = {
@@ -43,6 +44,7 @@ async function gateway() {
     created = false;
   const requests: { method: string; path: string; query: string; body: any }[] =
     [];
+  let workChanges: Remote[] = [];
   const session = () => ({
     access_token: jwt(),
     refresh_token: "synthetic-refresh",
@@ -126,9 +128,9 @@ async function gateway() {
         transition_id: null,
       };
     } else if (url.pathname === "/rest/v1/rpc/work_get_vault")
-      value = { vault, epoch: "work-epoch", high_water: 0 };
+      value = { vault, epoch: "work-epoch", high_water: workChanges.length };
     else if (url.pathname === "/rest/v1/rpc/work_get_changes")
-      value = { changes: [], epoch: "work-epoch", high_water: 0, next_cursor: 0 };
+      value = { changes: workChanges, epoch: "work-epoch", high_water: workChanges.length, next_cursor: workChanges.length };
     else if (url.pathname === "/rest/v1/rpc/work_ack_cursor") value = null;
     else if (url.pathname === "/rest/v1/rpc/get_changes")
       value = { changes: [], epoch: "epoch", high_water: 0, next_cursor: 0 };
@@ -154,6 +156,7 @@ async function gateway() {
   return {
     client,
     requests,
+    setWorkChanges: (changes: Remote[]) => { workChanges = changes; },
     session,
     get vault() {
       return vault;
@@ -201,6 +204,37 @@ test("email callback accepts supported link types and removes all credentials fr
     parseEmailReturn("https://notes.example.test/#recover").flow,
     "recovery",
   );
+});
+
+test("Work login opens a phone-encrypted record instead of immediately logging out", async () => {
+  const h = await gateway();
+  try {
+    const personal = h.client();
+    await personal.acceptEmailLink(h.session());
+    await personal.createNotebook(humanPassword);
+    const workKey = expand(personal.key, "workspace/work");
+    const p = newPayload("note", "Synthetic phone Work note");
+    const nonce = new Uint8Array(12).fill(7);
+    const aad = recordAAD(bootstrap.deployment_id + "/work", owner, personal.vault.key_id, p.id, 1, false);
+    // Encode Android JSONStringer's bytes independently of the browser seal helper.
+    const cipher = createCipheriv("aes-256-gcm", workKey, nonce);
+    cipher.setAAD(Buffer.from(JSON.stringify(aad).replaceAll("/", "\\/")));
+    const ciphertext = Buffer.concat([cipher.update(jsonBytes(p)), cipher.final(), cipher.getAuthTag()]);
+    h.setWorkChanges([{ id: p.id, revision: 1, seq: 1, deleted: false, envelope: {
+      protocol_version: 1, key_id: personal.vault.key_id, algorithm: "A256GCM",
+      nonce: b64(nonce), ciphertext_with_tag: ciphertext.toString("base64"),
+    } }]);
+    const start = h.requests.length;
+    const work = h.client("work");
+    await work.login(user.email, humanPassword);
+    assert.equal(work.entries.get(p.id)?.payload.title, p.title);
+    assert.equal(work.cursor, 1);
+    const requests = h.requests.slice(start);
+    assert.ok(requests.some(r => r.path.endsWith("/work_ack_cursor")));
+    assert.ok(requests.filter(r => r.path.includes("/rpc/")).every(r => r.path.includes("/work_")));
+    assert.ok(!requests.some(r => r.path.endsWith("/logout")));
+    workKey.fill(0);
+  } finally { await h.close(); }
 });
 test("expired, incomplete, and duplicate email tokens are scrubbed and never accepted", () => {
   for (const suffix of [

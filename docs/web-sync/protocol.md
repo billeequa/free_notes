@@ -16,6 +16,8 @@ Envelope JSON: `protocol_version:1`, `key_id`, `algorithm:"A256GCM"`, `nonce`, `
 - Vault: `["jnotes.vault",1,deployment_id,owner_uid,key_id,"password",0,false]`
 - Recovery: same vault array with `"recovery"` instead of `"password"`.
 
+Work record AAD uses `deployment_id + "/work"`. Its compact JSON must escape forward slashes as `\/`, matching Android's `org.json.JSONStringer`; JSON-equivalent strings with different bytes produce different GCM tags. Browser encryption now uses those Android-compatible bytes. Browser decryption also accepts the old web-only unescaped encoding of the exact same Work AAD. Neither encoding changes the namespace, owner, key, record, revision or deletion flag. Personal and vault AAD stay byte-for-byte unchanged. `work-vectors.json` is an independently generated fixed Work vector checked by both browser tests and Android's actual JSON serializer.
+
 UUIDs are canonical lower-case strings. Revisions/cursors stay within JavaScript's safe integer range; deployments must rotate protocol well before 2^53 operations. Payloads are UTF-8 JSON. All semantic metadata including kind, flags, title, text, dates, ordering and Double X markers is encrypted. `Payload` is defined in `protocol/types.ts`; Kotlin conversion lives in `SyncPayload`. Canonical comparison sorts JSON keys, normalizes flags/timestamps, and ignores a task's synthetic `modified_at` when comparing against the Android task format, which has no such on-disk field. Notes retain the existing serializer's second-resolution local timestamps; cloud timestamps are UTC instants, converted to local time before Android serialization. Task ordering follows its existing `addedAt` chronology. The protocol never rewrites existing files merely to assign IDs.
 
 ## Recovery

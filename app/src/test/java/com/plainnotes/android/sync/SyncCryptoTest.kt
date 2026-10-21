@@ -29,6 +29,18 @@ class SyncCryptoTest {
         assertThrows(Exception::class.java){SyncCrypto.open(key,e,v.getJSONArray("aad").put(6,7).toString())}
     }
 
+    @Test fun workMatchesActualAndroidJsonSlashEncodingAndBrowserCiphertext() {
+        val v=JSONObject(javaClass.classLoader!!.getResource("work-vectors.json")!!.readText())
+        val a=v.getJSONArray("aad")
+        val aad=SyncCrypto.aad(a.getString(2),a.getString(3),a.getString(4),a.getString(5),a.getLong(6),a.getBoolean(7))
+        assertEquals(v.getString("aad_json"),aad)
+        val key=SyncCrypto.expand(SyncCrypto.unb64(v.getString("master_key")),"workspace/work")
+        assertEquals(v.getString("key"),SyncCrypto.b64(key))
+        val e=v.getJSONObject("envelope")
+        assertEquals(v.getString("plaintext"),String(SyncCrypto.open(key,e,aad),Charsets.UTF_8))
+        assertEquals(e.getString("ciphertext_with_tag"),SyncCrypto.seal(key,a.getString(4),v.getString("plaintext").toByteArray(Charsets.UTF_8),aad,SyncCrypto.unb64(e.getString("nonce"))).getString("ciphertext_with_tag"))
+    }
+
     @org.junit.Test fun workKeyMatchesBrowserVectorAndUsesDistinctAAD() {
         val master=ByteArray(32){it.toByte()}
         val work=SyncCrypto.expand(master,"workspace/work")
