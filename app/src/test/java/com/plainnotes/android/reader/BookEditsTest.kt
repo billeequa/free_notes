@@ -78,6 +78,7 @@ class BookEditsTest {
     @Test fun partialProviderWriteRestoresOriginalAndReadingState() {
         val original = file.readBytes(); provider.failWriteOnce = true
         assertThrows(Exception::class.java) { edits().save(book, "renamed", "Changed", "Author") }
+        assertFalse(provider.failWriteOnce)
         assertArrayEquals(original, file.readBytes())
         assertEquals("position-json", cache.getString("locator:${key(book.uri)}", null))
         assertFalse(File(file.parentFile, "renamed.epub").exists())
@@ -87,6 +88,7 @@ class BookEditsTest {
     @Test fun failedRenameRestoresOriginalMetadata() {
         val original = file.readBytes(); provider.failRenameOnce = true
         assertThrows(Exception::class.java) { edits().save(book, "renamed", "Changed", "Author") }
+        assertFalse(provider.failRenameOnce)
         assertArrayEquals(original, file.readBytes())
     }
 

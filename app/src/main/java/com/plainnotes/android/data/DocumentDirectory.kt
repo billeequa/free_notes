@@ -21,13 +21,15 @@ internal data class DocumentEntry(
 }
 
 internal class DocumentDirectory(private val resolver: ContentResolver) {
-    fun children(directory: DocumentFile): List<DocumentEntry> {
-        if (directory.uri.scheme == "file") {
-            val folder = File(requireNotNull(directory.uri.path))
+    fun children(directory: DocumentFile): List<DocumentEntry> = children(directory.uri)
+
+    fun children(directory: Uri): List<DocumentEntry> {
+        if (directory.scheme == "file") {
+            val folder = File(requireNotNull(directory.path))
             return (folder.listFiles() ?: throw IOException("Unable to list the notes folder.")).map(::localEntry)
         }
         val uri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            directory.uri, DocumentsContract.getDocumentId(directory.uri),
+            directory, DocumentsContract.getDocumentId(directory),
         )
         val cursor = resolver.query(uri, PROJECTION, null, null, null)
             ?: throw IOException("Unable to list the notes folder.")
@@ -35,7 +37,7 @@ internal class DocumentDirectory(private val resolver: ContentResolver) {
             buildList {
                 while (it.moveToNext()) {
                     add(DocumentEntry(
-                        DocumentsContract.buildDocumentUriUsingTree(directory.uri, it.getString(0)),
+                        DocumentsContract.buildDocumentUriUsingTree(directory, it.getString(0)),
                         it.getString(1).orEmpty(), it.getString(2).orEmpty(),
                         if (it.isNull(3)) null else it.getLong(3),
                         if (it.isNull(4)) null else it.getLong(4),

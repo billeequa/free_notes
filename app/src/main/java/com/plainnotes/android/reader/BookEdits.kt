@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
 import android.util.AtomicFile
-import androidx.documentfile.provider.DocumentFile
+import android.provider.DocumentsContract
 import com.plainnotes.android.data.DocumentDirectory
 import java.io.File
 import java.io.IOException
@@ -27,12 +27,16 @@ internal class BookEdits(
         val filename = EpubMetadata.filename(stem, book.filename)
         val metadataChanged = title.trim() != book.title || author.trim() != book.author
         if (metadataChanged) require(title.isNotBlank()) { "Enter a title to save EPUB metadata." }
-        val parent = DocumentFile.fromTreeUri(context, book.parentUri) ?: throw IOException("The books folder is unavailable.")
-        val source = parent.findFile(book.filename) ?: throw IOException("The book moved. Refresh the library and try again.")
+        // Keep the exact document ID: fromTreeUri resolves nested parents to the
+        // selected tree root on some DocumentFile implementations/providers.
+        val siblings = documents.children(book.parentUri)
+        val source = siblings.firstOrNull { it.name == book.filename }
+            ?: throw IOException("The book moved. Refresh the library and try again.")
+        var currentUri = source.uri
         require(source.uri == book.uri && stamp(source.uri) == book.sourceStamp) { "The book changed. Refresh the library and try again." }
-        val duplicate = parent.findFile(filename)
+        val duplicate = siblings.firstOrNull { it.name == filename }
         require(duplicate == null || duplicate.uri == source.uri) { "Another book already uses that filename." }
-        if (!metadataChanged && filename == book.filename) return source.uri
+        if (!metadataChanged && filename == book.filename) return currentUri
 
         directory.mkdirs()
         val id = UUID.randomUUID().toString()
@@ -61,19 +65,20 @@ internal class BookEdits(
                 writeTo(source.uri, edited)
                 require(hash(source.uri) == newHash) { "The saved EPUB could not be verified." }
             }
-            if (filename != book.filename && !source.renameTo(filename)) throw IOException("This books folder could not rename the EPUB.")
+            if (filename != book.filename) currentUri = DocumentsContract.renameDocument(resolver, source.uri, filename)
+                ?: throw IOException("This books folder could not rename the EPUB.")
             // Providers may change the URI when renaming. The journal can also resolve
             // either name if the process stops between rename and this journal write.
-            journal.put("new_uri", source.uri.toString()).put("phase", "committed")
+            journal.put("new_uri", currentUri.toString()).put("phase", "committed")
             writeJournal(journalFile, journal)
-            migrate(journal, source.uri, updated = true)
+            migrate(journal, currentUri, updated = true)
             cleanup(journalFile, id)
-            return source.uri
+            return currentUri
         } catch (error: Exception) {
             if (journal != null) {
                 try {
                     recover(journalFile, journal)
-                    if (journal.optString("phase") == "committed") return source.uri
+                    if (journal.optString("phase") == "committed") return currentUri
                 }
                 catch (recovery: Exception) {
                     throw IOException("The save was interrupted. The original EPUB is backed up; allow access to its books folder and refresh to recover it.", recovery)
@@ -95,14 +100,18 @@ internal class BookEdits(
     private fun recover(file: File, journal: JSONObject) {
         val id = journal.getString("id")
         require(UUID.fromString(id).toString() == id && file.name == "$id.json")
-        val parent = DocumentFile.fromTreeUri(context, Uri.parse(journal.getString("parent")))
-            ?: throw IOException("Allow access to the books folder to finish recovering the EPUB.")
-        val old = parent.findFile(journal.getString("old_name"))
-        val renamed = parent.findFile(journal.getString("new_name"))
+        val siblings = documents.children(Uri.parse(journal.getString("parent")))
+        val old = siblings.firstOrNull { it.name == journal.getString("old_name") }
+        val renamed = siblings.firstOrNull { it.name == journal.getString("new_name") }
         // A same-name edit uses the original object. Otherwise a successful rename
         // leaves only the target name. Do not overwrite an unrelated colliding file.
-        val target = old ?: renamed ?: throw IOException("The edited book moved. Its original backup is retained.")
-        if (journal.getString("phase") == "committed") {
+        val committed = journal.getString("phase") == "committed"
+        if (!committed && old != null && renamed != null && old.uri != renamed.uri)
+            throw IOException("Both filenames are in use. The original EPUB backup is retained; resolve the collision and refresh.")
+        val target = (if (committed) renamed else old ?: renamed)
+            ?: throw IOException("The edited book moved. Its original backup is retained.")
+        var targetUri = target.uri
+        if (committed) {
             require(hash(target.uri) == journal.getString("new_hash")) { "The edited book changed; its original backup is retained." }
             migrate(journal, target.uri, updated = true)
         } else {
@@ -116,9 +125,9 @@ internal class BookEdits(
             }
             if (actual != journal.getString("original_hash")) writeTo(target.uri, original)
             require(hash(target.uri) == journal.getString("original_hash")) { "The original EPUB could not be restored." }
-            if (target.name != journal.getString("old_name") && !target.renameTo(journal.getString("old_name")))
-                throw IOException("The original EPUB could not regain its filename; its backup is retained.")
-            migrate(journal, target.uri, updated = false)
+            if (target.name != journal.getString("old_name")) targetUri = DocumentsContract.renameDocument(resolver, targetUri, journal.getString("old_name"))
+                ?: throw IOException("The original EPUB could not regain its filename; its backup is retained.")
+            migrate(journal, targetUri, updated = false)
         }
         cleanup(file, id)
     }
