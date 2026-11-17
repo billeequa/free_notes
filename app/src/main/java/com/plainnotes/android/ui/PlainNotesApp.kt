@@ -41,6 +41,9 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -234,7 +237,7 @@ private fun PlainNotesAppContent(
 
         PatchNotesPopup()
         uiState.doubleXPromptDate?.let { date ->
-            AlertDialog(onDismissRequest = viewModel::dismissDoubleXPrompt,
+            AlertDialog(onDismissRequest = viewModel::declineDoubleXPrompt,
                 title = { Text("Double X Day?") },
                 text = { Text("You've completed more than six things today. Mark today's journal as a Double X Day?") },
                 confirmButton = { TextButton(onClick = {
@@ -247,7 +250,7 @@ private fun PlainNotesAppContent(
                         }
                     }
                 }) { Text("Yes") } },
-                dismissButton = { TextButton(onClick = viewModel::dismissDoubleXPrompt) { Text("No") } })
+                dismissButton = { TextButton(onClick = viewModel::declineDoubleXPrompt) { Text("No") } })
         }
 
         if (!uiState.hasLoadedStorageConfig) {
@@ -362,6 +365,8 @@ private fun PlainNotesAppContent(
                     onBack = { currentScreenName = AppScreen.Notes.name },
                     onPickFolder = { folderPicker.launch(null) },
                     onOpenTrash = { currentScreenName = AppScreen.Trash.name },
+                    onClearTrash = viewModel::clearTrash,
+                    clearingTrash = uiState.clearingTrash,
                     onThemeSelected = viewModel::setThemeMode,
                     onFontScaleSelected = viewModel::setFontScale,
                     onDoubleXEnabled = viewModel::setDoubleXEnabled,
@@ -372,6 +377,8 @@ private fun PlainNotesAppContent(
                 AppScreen.Trash -> TrashScreen(
                     notes = uiState.trash,
                     isLoading = uiState.trashLoading,
+                    clearingTrash = uiState.clearingTrash,
+                    onClearTrash = viewModel::clearTrash,
                     onBack = { currentScreenName = AppScreen.Settings.name },
                     onRestore = { viewModel.restoreFromTrash(it.documentUri.toString()) },
                     onDeletePermanently = { viewModel.deletePermanently(it.documentUri.toString()) },
@@ -747,6 +754,8 @@ private fun SettingsScreen(
     onBack: () -> Unit,
     onPickFolder: () -> Unit,
     onOpenTrash: () -> Unit,
+    onClearTrash: () -> Unit,
+    clearingTrash: Boolean,
     onThemeSelected: (ThemeMode) -> Unit,
     onFontScaleSelected: (Float) -> Unit,
     onDoubleXEnabled: (Boolean) -> Unit,
@@ -872,10 +881,34 @@ private fun SettingsScreen(
                 Button(onClick = onOpenTrash, modifier = Modifier.fillMaxWidth()) {
                     Text("Open trash")
                 }
+                ClearTrashButton(onConfirm = onClearTrash, enabled = !clearingTrash, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()))
             }
         }
     }
+}
+
+// One explicit red keeps destructive pills consistent across all themes and both entry points.
+private val TrashRed = Color(0xFFB3261E)
+
+@Composable
+private fun trashButtonColors() = ButtonDefaults.buttonColors(containerColor = TrashRed, contentColor = Color.White)
+
+@Composable
+private fun ClearTrashButton(onConfirm: () -> Unit, enabled: Boolean, modifier: Modifier = Modifier) {
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    Button(onClick = { confirm = true }, enabled = enabled, modifier = modifier,
+        shape = RoundedCornerShape(50), colors = trashButtonColors()) { Text("Clear trash") }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { Text("Clear trash?") },
+        text = { Text("Permanently delete all notes in the current workspace’s trash? This cannot be undone.") },
+        confirmButton = {
+            Button(onClick = { confirm = false; onConfirm() }, enabled = enabled,
+                shape = RoundedCornerShape(50), colors = trashButtonColors()) { Text("Clear trash") }
+        },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -903,6 +936,8 @@ private fun ChoiceRow(
 private fun TrashScreen(
     notes: List<NoteDocument>,
     isLoading: Boolean,
+    clearingTrash: Boolean,
+    onClearTrash: () -> Unit,
     onBack: () -> Unit,
     onRestore: (NoteDocument) -> Unit,
     onDeletePermanently: (NoteDocument) -> Unit,
@@ -915,6 +950,11 @@ private fun TrashScreen(
             CenterAlignedTopAppBar(
                 colors = plainNotesTopAppBarColors(),
                 title = { Text("Trash") },
+                actions = {
+                    ClearTrashButton(onConfirm = onClearTrash,
+                        enabled = !isLoading && !clearingTrash && notes.isNotEmpty(),
+                        modifier = Modifier.padding(end = 12.dp))
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -972,10 +1012,12 @@ private fun TrashScreen(
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { onRestore(note) }) {
+                            FilledTonalButton(onClick = { onRestore(note) }, enabled = !clearingTrash,
+                                shape = RoundedCornerShape(50)) {
                                 Text("Restore")
                             }
-                            TextButton(onClick = { pendingPermanentDelete = note }) {
+                            Button(onClick = { pendingPermanentDelete = note }, enabled = !clearingTrash,
+                                shape = RoundedCornerShape(50), colors = trashButtonColors()) {
                                 Text("Delete forever")
                             }
                         }
@@ -1452,8 +1494,9 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("The Work / Personal switch now uses matching LaTeX calligraphic icons on Notes and To Do. To Do has more space beneath the viewing options.")
-            Text("The Work website stays in Work with no Personal switch. Completed web tasks are grouped above open tasks, and web search has been removed.")
+            Text("Declining Double X Day now lasts for the rest of the day, even after restarting JNotes.")
+            Text("The reader has large curved page-turn areas and a progress slider. Tap the page center to show controls; they fade after five seconds.")
+            Text("Clear trash from its title bar or the bottom of Settings, with confirmation. Restore and Delete forever are now pills.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

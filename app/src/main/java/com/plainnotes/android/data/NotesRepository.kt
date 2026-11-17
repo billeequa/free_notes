@@ -55,6 +55,8 @@ class NotesRepository(private val context: Context, val workspace: Workspace = W
     fun fontScale(): Flow<Float> = settingsRepository.fontScale
 
     fun noteSortMode(): Flow<String> = settingsRepository.noteSortMode
+    suspend fun doubleXDeclinedDate(): LocalDate? = settingsRepository.doubleXDeclinedDate.first()
+    suspend fun declineDoubleXPrompt(date: LocalDate) = settingsRepository.declineDoubleXPrompt(date)
     fun doubleXEnabled(): Flow<Boolean> = settingsRepository.doubleXEnabled
     fun showReader(): Flow<Boolean> = settingsRepository.showReader
     suspend fun setDoubleXEnabled(enabled: Boolean) = settingsRepository.setDoubleXEnabled(enabled)
@@ -384,6 +386,22 @@ class NotesRepository(private val context: Context, val workspace: Workspace = W
             if (!file.delete()) {
                 throw IOException("The note could not be deleted.")
             }
+        }
+    }
+
+    /** Clear only this workspace's trashed notes, including notes with unreadable headers. */
+    suspend fun clearTrash(): Int = withContext(Dispatchers.IO) {
+        storageMutex.withLock {
+            val trash = trashDirectoryOrNull() ?: return@withLock 0
+            val entries = documents.children(trash).filter { it.isNote }
+            var deleted = 0
+            var failed = 0
+            for (entry in entries) {
+                val removed = DocumentFile.fromSingleUri(context, entry.uri)?.delete() == true
+                if (removed) deleted++ else failed++
+            }
+            if (failed > 0) throw IOException("Cleared $deleted notes; $failed could not be deleted. Please try again.")
+            deleted
         }
     }
 

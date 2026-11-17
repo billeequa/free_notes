@@ -1,10 +1,10 @@
-# JNotes 1.6.1
+# JNotes 1.6.2
 
-- Use matching LaTeX calligraphic Work / Personal icons on Notes and To Do. The To Do switch is at the lower left.
-- Keep the View controls fully visible for a short To Do list, with more space before the first task.
-- Work sync is attempted even when Personal sync needs repair or a retry.
-- The dedicated website at https://j4notes.pages.dev/work stays in Work, with no Personal toggle or sign-in link. The main website can still switch between both scopes.
-- Work has its own entry document and encrypted feed; Personal records are never substituted into Work.
-- Web search is removed, with a simpler header and matching folder styling for completed tasks above open tasks.
+- Saying No to Double X Day suppresses further prompts for the rest of that day, including after restarting the app. The journal shortcut remains available.
+- Tap the center of a book page for its title, contents button, and a scrub-able reading progress bar. Controls fade after five seconds; dragging the slider or browsing contents keeps them open.
+- Large curved page-turn areas cover the left and right edges, reaching 20% into the page at the center. Their outlines appear briefly when opening a book, then fade. Swipes and text selection remain available.
+- Fit the reader toolbar to the status bar and keep the E Reader library title and Refresh button fixed above the scrolling books.
+- Add matching red Clear trash pills to the Trash title bar and the bottom of Settings. Both require confirmation and clear only the current workspace’s trash.
+- Show Restore and Delete forever as adjacent pills in Trash.
 
-Install jnotes-30.apk over the existing installation. Phone files, selected-folder permissions and readable note/task formats are preserved.
+Install jnotes-31.apk over the existing installation.

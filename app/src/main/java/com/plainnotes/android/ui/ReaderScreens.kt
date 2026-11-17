@@ -72,10 +72,12 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
     }
     LaunchedEffect(active) { if (active) model.load() }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text("E Reader", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = { model.load(force = true) }) { Text("Refresh") }
+        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("E Reader", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { model.load(force = true) }, enabled = !loading) { Text("Refresh") }
+            }
         }
         if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
         when {
@@ -87,6 +89,7 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
                 TextButton(onClick = onSettings) { Text("Open Settings") }
             }
             else -> LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),

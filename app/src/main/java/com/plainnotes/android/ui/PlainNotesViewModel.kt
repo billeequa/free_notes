@@ -73,6 +73,7 @@ data class PlainNotesUiState(
     val journals: List<NoteDocument> = emptyList(),
     val trash: List<NoteDocument> = emptyList(),
     val trashLoading: Boolean = false,
+    val clearingTrash: Boolean = false,
     val todos: List<TodoItem> = emptyList(),
     val todosLoaded: Boolean = false,
     val todoError: String? = null,
@@ -88,6 +89,7 @@ class PlainNotesViewModel(application: Application, val workspace: Workspace = W
     private var selectedIndexRoot: String? = null
     private var refreshJob: Job? = null
     private var trashJob: Job? = null
+    private var declinedDoubleXDate: LocalDate? = null
     private val _uiState = MutableStateFlow(PlainNotesUiState())
     val uiState: StateFlow<PlainNotesUiState> = _uiState.asStateFlow()
 
@@ -253,6 +255,16 @@ class PlainNotesViewModel(application: Application, val workspace: Workspace = W
     }
 
     fun dismissDoubleXPrompt() { _uiState.update { it.copy(doubleXPromptDate = null) } }
+    fun declineDoubleXPrompt() {
+        val date = LocalDate.now()
+        declinedDoubleXDate = date // Suppress immediately, before the settings write completes.
+        dismissDoubleXPrompt()
+        viewModelScope.launch {
+            try { repository.declineDoubleXPrompt(date) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { postStatus("Unable to remember today's Double X Day choice.") }
+        }
+    }
     fun setDoubleXEnabled(enabled: Boolean) { viewModelScope.launch { repository.setDoubleXEnabled(enabled) } }
     fun setShowReader(enabled: Boolean) { viewModelScope.launch { repository.setShowReader(enabled) } }
 
@@ -334,6 +346,27 @@ class PlainNotesViewModel(application: Application, val workspace: Workspace = W
         }
     }
 
+    fun clearTrash() {
+        if (_uiState.value.clearingTrash) return
+        _uiState.update { it.copy(clearingTrash = true) }
+        viewModelScope.launch {
+            try {
+                val deleted = repository.clearTrash()
+                postStatus(if (deleted == 0) "Trash is already empty." else "Trash cleared.")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                postStatus(error.message ?: "Unable to clear trash.")
+            } finally {
+                _uiState.update { it.copy(clearingTrash = false) }
+                // Reload even after partial failure so deleted rows do not linger.
+                trashJob?.cancel()
+                trashJob = null
+                loadTrash()
+            }
+        }
+    }
+
     fun exportNotes() {
         viewModelScope.launch {
             try {
@@ -386,7 +419,9 @@ class PlainNotesViewModel(application: Application, val workspace: Workspace = W
                     for (item in newCompletions) {
                         val date = item.completedAt!!.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate()
                         val count = DoubleXDay.accomplished(updated, date).size
-                        if (count > 6 && !repository.hasDoubleXNote(date)) {
+                        if (count > 6 && DoubleXDay.canPrompt(date, declinedDoubleXDate) &&
+                            DoubleXDay.canPrompt(date, repository.doubleXDeclinedDate()) &&
+                            !repository.hasDoubleXNote(date) && declinedDoubleXDate != date) {
                             _uiState.update { it.copy(doubleXPromptDate = date) }
                         }
                     }
