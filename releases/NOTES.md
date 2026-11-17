@@ -1,13 +1,10 @@
-# JNotes 1.7.0
+# JNotes 1.8.0
 
-- Compact Settings into clear Appearance, Updates, Sync & website, Workspace & journal, E Reader, Storage and Trash sections. Theme and font choices use compact selectors.
-- Move Updates directly below Appearance and put version information and actions in pills.
-- Simplify the sync summary to status, Sync now and More. Account, backup and repair controls remain available under More; first-upload and recovery confirmations are preserved.
-- Add Repeat after completion for to-do items. Repeating tasks show a repeat icon; completing one keeps its history and creates one fresh copy with the same title, description and flags. Choose Stop repeating in the live task’s menu, or turn it off while editing.
-- Preserve repeat settings through encrypted sync and support repeating completion on the website. Phone and web derive the same successor identity to prevent duplicate copies.
-- Enlarge curved reader tap areas to 32% of the width at mid-height and 20% at either end. The center still toggles controls.
-- Reduce Readium’s extra top and bottom spacing from 40 dp to 4 dp and avoid double cutout padding. Reader menus overlay the text when shown.
-- Match the ebook library heading to Notes’ list controls: it is the first list item and scrolls out of view, rather than following the book list as a pinned ribbon.
-- Give scrolling to-do descriptions a solid bottom boundary without a second outline above it.
+- Long-press an EPUB to edit its filename, title and author. The .epub extension stays fixed. Title and author are saved into the book itself, and populated metadata replaces the filename in the library.
+- Preserve reading position through renames. Metadata edits retain the identifier, chapters and assets, with a durable original backup and recovery for interrupted provider writes. Duplicate filenames and changed source files are rejected.
+- Choose reader font sizes from 75% to 200%, independent of app text size. Tap a reading page, then Aa, to change it without leaving the book; Aa is also available in the library.
+- Use the standard completion checkbox for repeating tasks, with the repeat icon after the task name. Repeat after completion is the last optional tag, on phone and web.
+- Show all themes with color swatches and all font choices as selectable pills in Settings.
+- Place Check for updates beside the current version, move books folders into Storage, and display the website address beside Open website (including /work in Work mode).
 
-Install jnotes-32.apk over the existing installation. Existing folders, notes and tasks are retained. To-do files use readable format 3 while repeating tasks are enabled; formats 1 and 2 remain readable. Older app versions cannot read format 3.
+Install jnotes-33.apk over your existing installation. Notes, tasks, folders and reading positions are retained. Existing reader text size is preserved until you choose a separate reader size. No task file or sync protocol changes are introduced in this release.

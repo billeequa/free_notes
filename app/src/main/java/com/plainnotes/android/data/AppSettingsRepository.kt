@@ -16,6 +16,7 @@ private val Context.dataStore by preferencesDataStore(name = "plain_notes_settin
 class AppSettingsRepository(private val context: Context) {
     private val rootFolderKey = stringPreferencesKey("root_folder_uri")
     private val themeModeKey = stringPreferencesKey("theme_mode")
+    private val readerFontScaleKey = stringPreferencesKey("reader_font_scale")
     private val fontScaleKey = stringPreferencesKey("font_scale")
     private val noteSortModeKey = stringPreferencesKey("note_sort_mode")
     private val doubleXDeclinedDateKey = stringPreferencesKey("double_x_declined_date")
@@ -36,6 +37,16 @@ class AppSettingsRepository(private val context: Context) {
     val fontScale: Flow<Float> = context.dataStore.data.map { preferences ->
         preferences[fontScaleKey]?.toFloatOrNull() ?: 1.0f
     }.distinctUntilChanged()
+
+    val readerFontScale: Flow<Float> = context.dataStore.data.map { prefs ->
+        (prefs[readerFontScaleKey]?.toFloatOrNull() ?: prefs[fontScaleKey]?.toFloatOrNull() ?: 1f)
+            .takeIf { it.isFinite() }?.coerceIn(0.75f, 2f) ?: 1f
+    }.distinctUntilChanged()
+
+    suspend fun setReaderFontScale(scale: Float) {
+        require(scale.isFinite() && scale in 0.75f..2f)
+        context.dataStore.edit { it[readerFontScaleKey] = scale.toString() }
+    }
 
     val noteSortMode: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[noteSortModeKey] ?: "modified"

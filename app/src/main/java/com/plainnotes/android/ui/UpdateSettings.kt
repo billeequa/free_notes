@@ -46,8 +46,10 @@ fun UpdateSettings() {
             install(file)
         } }
     }
-    Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Text("Installed: ${BuildConfig.VERSION_NAME}", Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(modifier = Modifier.weight(1f), shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Text("Current version: ${BuildConfig.VERSION_NAME}", Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.bodyMedium)
     }
     FilledTonalButton(enabled = !busy, onClick = { perform {
@@ -58,6 +60,7 @@ fun UpdateSettings() {
             message = "Available: ${latest.label}"
         } else message = "You're up to date."
     } }) { Text(if (busy) "Working…" else "Check for updates") }
+    }
     release?.let { available ->
         Button(enabled = !busy, onClick = { perform {
             val file = AppUpdates.download(context, available)
