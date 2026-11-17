@@ -2,7 +2,7 @@
 
 Settings includes Check for updates, Download and install, Open GitHub Releases, and Install downloaded APK. Downloads must have the application ID `com.plainnotes.android`, a higher versionCode, and the same signing certificate. Android asks for approval before installation.
 
-A normal update preserves the selected notes folder, its permission, app settings, and existing files. Notes remain usable locally without a cloud account or a working server. To Do files use format 2; do not downgrade to an app that only supports format 1.
+A normal update preserves the selected notes folder, its permission, app settings, and existing files. Notes remain usable locally without a cloud account or a working server. To Do files use format 3 while repeating tasks are enabled, and format 2 otherwise. Do not downgrade to a version that cannot read your task file format.
 
 ## Signing and publishing
 

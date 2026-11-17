@@ -107,3 +107,10 @@ it. New or promoted entries insert it once; older Double X entries insert it on
 first open, retaining all previous body text underneath. The marker survives
 saving, category moves, trash/restore, and export. The title is editable too;
 reopening the daily shortcut retains a custom title and body.
+
+
+## Repeating tasks (format 3)
+
+When any task has Repeat after completion enabled, the task file uses `Jnotes To-do: 3` with an eighth field, `repeat: true` or `repeat: false`, following `flags`. The seven earlier fields and their escaping remain unchanged. With no repeating tasks, saving continues to use format 2. Formats 1 and 2 remain readable and imply `repeat: false`.
+
+Completing a repeating task archives it with repetition disabled and creates a new open task with the same title, description and flags. Only the live successor repeats; reopening an archived occurrence does not spawn another copy. Phone and web derive the successor UUID from the source ID, preventing duplicate successors on retry or simultaneous completion. `repeat_on_complete: true` is optional encrypted task metadata; absent or false means a one-off task.

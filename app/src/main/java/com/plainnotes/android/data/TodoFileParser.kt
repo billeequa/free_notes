@@ -11,6 +11,7 @@ data class TodoItem(
     val completedAt: OffsetDateTime? = null,
     val flagged: Boolean = false,
     val flags: Set<TodoFlag> = emptySet(),
+    val repeatOnComplete: Boolean = false,
 )
 
 /** Versioned, readable UTF-8. Escaping keeps multiline descriptions inside one record. */
@@ -18,9 +19,11 @@ object TodoFileParser {
     const val FILE_NAME = "to_do_jnotes.txt"
     private const val LEGACY_HEADER = "Jnotes To-do: 1"
     private const val HEADER = "Jnotes To-do: 2"
+    private const val REPEAT_HEADER = "Jnotes To-do: 3"
 
     fun serialize(items: List<TodoItem>): String = buildString {
-        appendLine(HEADER)
+        val repeating = items.any { it.repeatOnComplete }
+        appendLine(if (repeating) REPEAT_HEADER else HEADER)
         items.forEach { item ->
             appendLine()
             appendLine("id: ${item.id}")
@@ -30,15 +33,17 @@ object TodoFileParser {
             appendLine("completed: ${item.completedAt ?: ""}")
             appendLine("flagged: ${item.flagged}")
             appendLine("flags: ${TodoFlag.entries.filter { it in item.flags }.joinToString(",") { it.key }}")
+            if (repeating) appendLine("repeat: ${item.repeatOnComplete}")
         }
     }
 
     fun parse(text: String): List<TodoItem> {
         val lines = text.replace("\r\n", "\n").trimEnd('\n').split('\n')
         val legacy = lines.firstOrNull() == LEGACY_HEADER
-        require(legacy || lines.firstOrNull() == HEADER) { "Unrecognized to-do file; the original has not been changed." }
+        val repeating = lines.firstOrNull() == REPEAT_HEADER
+        require(legacy || repeating || lines.firstOrNull() == HEADER) { "Unrecognized to-do file; the original has not been changed." }
         val records = lines.drop(1).filter { it.isNotEmpty() }
-        val fields = if (legacy) 6 else 7
+        val fields = if (legacy) 6 else if (repeating) 8 else 7
         require(records.size % fields == 0) { "Incomplete to-do record; the original has not been changed." }
         val items = records.chunked(fields).map { record ->
             fun field(index: Int, key: String): String {
@@ -57,6 +62,7 @@ object TodoFileParser {
                         requireNotNull(TodoFlag.entries.find { it.key == key }) { "Unknown to-do flag: $key" }
                     }.toSet()
                 },
+                repeatOnComplete = repeating && field(7, "repeat").toBooleanStrict(),
             )
         }
         require(items.map { it.id }.distinct().size == items.size) { "Duplicate to-do IDs." }

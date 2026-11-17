@@ -1,0 +1,3 @@
+<resources>
+    <dimen name="readium_navigator_epub_vertical_padding">4dp</dimen>
+</resources>

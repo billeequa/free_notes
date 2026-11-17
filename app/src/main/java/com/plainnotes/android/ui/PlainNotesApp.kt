@@ -13,7 +13,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -371,6 +370,7 @@ private fun PlainNotesAppContent(
                     onFontScaleSelected = viewModel::setFontScale,
                     onDoubleXEnabled = viewModel::setDoubleXEnabled,
                     onShowReader = viewModel::setShowReader,
+                    snackbarHostState = snackbarHostState,
                     modifier = Modifier.fillMaxSize(),
                 )
     
@@ -382,6 +382,7 @@ private fun PlainNotesAppContent(
                     onBack = { currentScreenName = AppScreen.Settings.name },
                     onRestore = { viewModel.restoreFromTrash(it.documentUri.toString()) },
                     onDeletePermanently = { viewModel.deletePermanently(it.documentUri.toString()) },
+                    snackbarHostState = snackbarHostState,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -760,130 +761,71 @@ private fun SettingsScreen(
     onFontScaleSelected: (Float) -> Unit,
     onDoubleXEnabled: (Boolean) -> Unit,
     onShowReader: (Boolean) -> Unit,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
+    var foldersExpanded by rememberSaveable { mutableStateOf(false) }
+    val fontSizes = listOf("Small" to 0.9f, "Small+" to 0.95f, "Medium−" to 0.975f,
+        "Medium" to 1.0f, "Medium+" to 1.075f, "Large" to 1.15f, "XL" to 1.3f)
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
-                title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
-                },
-            )
+            CenterAlignedTopAppBar(colors = plainNotesTopAppBarColors(), title = { Text("Settings") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } })
         },
     ) { innerPadding ->
-        Box(
-            modifier = modifier
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                Spacer(Modifier.height(6.dp)) // 24 dp total breathing room, including the 18-dp item gap.
-                Text(
-                    text = "Notes live in",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = selectedFolderName ?: "No folder selected",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(modifier = Modifier.size(12.dp))
-                    Button(onClick = onPickFolder) {
-                        Text("Change")
-                    }
+        Column(modifier.padding(innerPadding).fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(2.dp))
+            SettingsSection("Appearance") {
+                SettingsChoice("Theme", ThemeMode.entries.map { it.label to (themeMode == it) }) { label ->
+                    onThemeSelected(ThemeMode.entries.first { it.label == label })
                 }
-                Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodyMedium)
-                HorizontalDivider()
-                Text(
-                    text = "Themes",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                ChoiceRow(
-                    options = ThemeMode.entries.map { it.label to (themeMode == it) },
-                    onSelected = { label -> onThemeSelected(ThemeMode.entries.first { it.label == label }) },
-                )
-                HorizontalDivider()
-                Text(
-                    text = "Font size",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                ChoiceRow(
-                    options = listOf(
-                        "Small" to (fontScale == 0.9f),
-                        "Small+" to (fontScale == 0.95f),
-                        "Medium−" to (fontScale == 0.975f),
-                        "Medium" to (fontScale == 1.0f),
-                        "Medium+" to (fontScale == 1.075f),
-                        "Large" to (fontScale == 1.15f),
-                        "XL" to (fontScale == 1.3f),
-                    ),
-                    onSelected = { label ->
-                        onFontScaleSelected(
-                            when (label) {
-                                "Small" -> 0.9f
-                                "Small+" -> 0.95f
-                                "Medium−" -> 0.975f
-                                "Medium+" -> 1.075f
-                                "Large" -> 1.15f
-                                "XL" -> 1.3f
-                                else -> 1.0f
-                            },
-                        )
-                    },
-                )
-                HorizontalDivider()
-                if (workspaceSettings.active == Workspace.PERSONAL) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Show Double X Day", Modifier.weight(1f))
-                    androidx.compose.material3.Switch(checked = doubleXEnabled, onCheckedChange = onDoubleXEnabled)
+                SettingsChoice("Font size", fontSizes.map { it.first to (fontScale == it.second) }) { label ->
+                    onFontScaleSelected(fontSizes.first { it.first == label }.second)
                 }
-                HorizontalDivider()
+            }
+            SettingsSection("Updates") { UpdateSettings() }
+            SettingsSection("Sync & website") {
+                WebSyncSettings(workspaceSettings.active)
+                WebsiteSettings(workspaceSettings.active)
+            }
+            SettingsSection("Workspace & journal") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Enable Work mode", Modifier.weight(1f))
-                    androidx.compose.material3.Switch(checked = workspaceSettings.enabled, onCheckedChange = onWorkModeEnabled)
+                    Text("Work mode", Modifier.weight(1f))
+                    androidx.compose.material3.Switch(workspaceSettings.enabled, onCheckedChange = onWorkModeEnabled)
                 }
-                Text("Adds a Work / Personal button on Notes and To Do. Work has its own notes and to-do list. Turning this off keeps your work files.",
-                    style = MaterialTheme.typography.bodyMedium)
-                HorizontalDivider()
-                if (workspaceSettings.active == Workspace.PERSONAL) {
-                Text("E Reader", style = MaterialTheme.typography.titleMedium)
+                if (workspaceSettings.active == Workspace.PERSONAL) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Double X Day", Modifier.weight(1f))
+                    androidx.compose.material3.Switch(doubleXEnabled, onCheckedChange = onDoubleXEnabled)
+                }
+            }
+            if (workspaceSettings.active == Workspace.PERSONAL) SettingsSection("E Reader") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Show E Reader", Modifier.weight(1f))
-                    androidx.compose.material3.Switch(checked = showReader, onCheckedChange = onShowReader)
+                    androidx.compose.material3.Switch(showReader, onCheckedChange = onShowReader)
                 }
-                BooksFoldersSettings()
+                FilledTonalButton(onClick = { foldersExpanded = !foldersExpanded }) {
+                    Text(if (foldersExpanded) "Hide books folders" else "Books folders")
                 }
-                HorizontalDivider()
-                WebsiteSettings(workspaceSettings.active)
-                WebSyncSettings(workspaceSettings.active)
-                HorizontalDivider()
-                UpdateSettings()
-                Button(onClick = onOpenTrash, modifier = Modifier.fillMaxWidth()) {
-                    Text("Open trash")
-                }
-                ClearTrashButton(onConfirm = onClearTrash, enabled = !clearingTrash, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()))
+                if (foldersExpanded) BooksFoldersSettings()
             }
+            SettingsSection("Storage") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(selectedFolderName ?: "No folder selected", Modifier.weight(1f), maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    FilledTonalButton(onClick = onPickFolder) { Text("Change folder") }
+                }
+                Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodySmall)
+            }
+            SettingsSection("Trash") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = onOpenTrash, modifier = Modifier.weight(1f)) { Text("Open trash") }
+                    ClearTrashButton(onConfirm = onClearTrash, enabled = !clearingTrash, modifier = Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(12.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()))
         }
     }
 }
@@ -911,26 +853,6 @@ private fun ClearTrashButton(onConfirm: () -> Unit, enabled: Boolean, modifier: 
     )
 }
 
-@Composable
-private fun ChoiceRow(
-    options: List<Pair<String, Boolean>>,
-    onSelected: (String) -> Unit,
-) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        options.forEach { (label, selected) ->
-            FilterChip(
-                selected = selected,
-                onClick = { onSelected(label) },
-                label = { Text(label) },
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TrashScreen(
@@ -941,11 +863,13 @@ private fun TrashScreen(
     onBack: () -> Unit,
     onRestore: (NoteDocument) -> Unit,
     onDeletePermanently: (NoteDocument) -> Unit,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
     var pendingPermanentDelete by remember { mutableStateOf<NoteDocument?>(null) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 colors = plainNotesTopAppBarColors(),
@@ -1496,9 +1420,9 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Declining Double X Day now lasts for the rest of the day, even after restarting JNotes.")
-            Text("The reader has large curved page-turn areas and a progress slider. Tap the page center to show controls; they fade after five seconds.")
-            Text("Clear trash from its title bar or the bottom of Settings, with confirmation. Restore and Delete forever are now pills.")
+            Text("Settings now has compact, clearly separated sections. Updates is just below Appearance, with pill controls. Sync now is easy to reach; account and repair options are under More.")
+            Text("Repeating tasks show a repeat icon and create a fresh copy when completed. Enable Repeat after completion while adding or editing a task, or use its task menu. Stop repeating turns it off on the live copy.")
+            Text("The reader has larger page-turn areas and much smaller top and bottom margins. The library heading stays at the start of the list, like Notes’ controls, and scrolls out of view.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

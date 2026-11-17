@@ -9,11 +9,13 @@ export function mergeTask(
   if ([base, local, remote].some((p) => p.kind !== "task" || p.id !== base.id))
     return null;
   const result = { ...remote };
-  for (const k of Object.keys(local) as (keyof Payload)[]) {
+  const keys = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)]);
+  for (const k of keys as Set<keyof Payload>) {
     if (k === "modified_at") continue;
     if (equal(local[k], base[k])) continue;
     if (!equal(remote[k], base[k]) && !equal(local[k], remote[k])) return null;
-    Object.assign(result, { [k]: local[k] });
+    if (local[k] === undefined) Reflect.deleteProperty(result, k);
+    else Object.assign(result, { [k]: local[k] });
   }
   return { ...result, modified_at: new Date().toISOString() };
 }

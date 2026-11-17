@@ -5,13 +5,13 @@ import org.junit.Test
 
 class ReaderTapZonesTest {
     @Test fun wideCurvesTurnPagesAndLeaveTheCenterForControls() {
-        assertEquals(-1, ReaderTapZones.direction(199f, 400f, 1000, 800))
-        assertEquals(1, ReaderTapZones.direction(801f, 400f, 1000, 800))
+        assertEquals(-1, ReaderTapZones.direction(319f, 400f, 1000, 800))
+        assertEquals(1, ReaderTapZones.direction(681f, 400f, 1000, 800))
         assertEquals(0, ReaderTapZones.direction(500f, 400f, 1000, 800))
-        assertEquals(-1, ReaderTapZones.direction(119f, 0f, 1000, 800))
-        assertEquals(0, ReaderTapZones.direction(150f, 0f, 1000, 800))
-        assertEquals(1, ReaderTapZones.direction(881f, 800f, 1000, 800))
-        assertEquals(0, ReaderTapZones.direction(850f, 800f, 1000, 800))
+        assertEquals(-1, ReaderTapZones.direction(199f, 0f, 1000, 800))
+        assertEquals(0, ReaderTapZones.direction(250f, 0f, 1000, 800))
+        assertEquals(1, ReaderTapZones.direction(801f, 800f, 1000, 800))
+        assertEquals(0, ReaderTapZones.direction(750f, 800f, 1000, 800))
     }
 
     @Test fun unmeasuredNavigatorDoesNotTurnPages() {
