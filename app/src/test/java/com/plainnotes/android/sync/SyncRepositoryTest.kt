@@ -43,6 +43,45 @@ class SyncRepositoryTest {
         AppSettingsRepository(context).setRootFolderUri(tree)
         store=SyncRuntime.store(context)
     }
+    @Test fun clearTrashDeletesMalformedNotesOnlyInTheSelectedWorkspace() = runBlocking {
+        val active = File(provider.root, "active.txt").apply { writeText("Keep active") }
+        val personal = File(provider.root, "Trash/personal.txt").apply { parentFile!!.mkdirs(); writeText("Keep personal") }
+        val workTrash = File(provider.root, "Work/Trash").apply { mkdirs() }
+        File(workTrash, "normal.txt").writeText("Title: Trashed\n\nBody")
+        File(workTrash, "malformed.txt").writeText("\u0000malformed header")
+        val nested = File(workTrash, "other-folder/keep.txt").apply { parentFile!!.mkdirs(); writeText("Keep folder") }
+        val work = NotesRepository(context, Workspace.WORK)
+        assertEquals(2, work.clearTrash())
+        assertTrue(active.exists())
+        assertTrue(personal.exists())
+        assertTrue(nested.exists())
+        assertEquals(0, work.clearTrash())
+    }
+
+    @Test fun failedTrashDeletionCanBeRetriedWithoutLosingActiveNotes() = runBlocking {
+        val active = File(provider.root, "active.txt").apply { writeText("Keep active") }
+        val deleted = File(provider.root, "Trash/delete.txt").apply { parentFile!!.mkdirs(); writeText("Trash") }
+        val repository = NotesRepository(context)
+        provider.failDelete = true
+        try { repository.clearTrash(); fail("A provider failure must be reported") }
+        catch (_: java.io.IOException) { }
+        assertTrue(deleted.exists())
+        assertTrue(active.exists())
+        provider.failDelete = false
+        assertEquals(1, repository.clearTrash())
+        assertFalse(deleted.exists())
+        assertTrue(active.exists())
+    }
+
+    @Test fun declinedDoubleXDateSurvivesRepositoryRecreation() = runBlocking {
+        val day = java.time.LocalDate.of(2026, 11, 16)
+        NotesRepository(context).declineDoubleXPrompt(day)
+        val reopened = NotesRepository(context)
+        assertEquals(day, reopened.doubleXDeclinedDate())
+        assertFalse(com.plainnotes.android.data.DoubleXDay.canPrompt(day, reopened.doubleXDeclinedDate(), day))
+        assertTrue(com.plainnotes.android.data.DoubleXDay.canPrompt(day.plusDays(1), reopened.doubleXDeclinedDate(), day.plusDays(1)))
+    }
+
     private suspend fun existing():Pair<NotesRepository,com.plainnotes.android.model.EditableNote> {
         val filename="20261018-120000-original.txt"
         File(provider.root,filename).writeText(NoteFileParser.serialize(NoteTextContent("original",date,date,"Phone λ\nOriginal body")))

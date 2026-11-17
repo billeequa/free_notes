@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -17,6 +18,7 @@ class AppSettingsRepository(private val context: Context) {
     private val themeModeKey = stringPreferencesKey("theme_mode")
     private val fontScaleKey = stringPreferencesKey("font_scale")
     private val noteSortModeKey = stringPreferencesKey("note_sort_mode")
+    private val doubleXDeclinedDateKey = stringPreferencesKey("double_x_declined_date")
     private val doubleXEnabledKey = booleanPreferencesKey("double_x_enabled")
     private val workModeEnabledKey = booleanPreferencesKey("work_mode_enabled")
     private val workModeActiveKey = booleanPreferencesKey("work_mode_active")
@@ -38,6 +40,13 @@ class AppSettingsRepository(private val context: Context) {
     val noteSortMode: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[noteSortModeKey] ?: "modified"
     }.distinctUntilChanged()
+
+    val doubleXDeclinedDate: Flow<LocalDate?> = context.dataStore.data.map { prefs ->
+        prefs[doubleXDeclinedDateKey]?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    }.distinctUntilChanged()
+    suspend fun declineDoubleXPrompt(date: LocalDate) {
+        context.dataStore.edit { it[doubleXDeclinedDateKey] = date.toString() }
+    }
 
     val doubleXEnabled: Flow<Boolean> = context.dataStore.data.map { it[doubleXEnabledKey] ?: false }.distinctUntilChanged()
     val workspaceSettings: Flow<WorkspaceSettings> = context.dataStore.data.map {

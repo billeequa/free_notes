@@ -6,6 +6,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 object DoubleXDay {
+    fun canPrompt(date: LocalDate, declinedDate: LocalDate?, today: LocalDate = LocalDate.now()): Boolean =
+        date == today && declinedDate != today
+
     /**
      * Snapshot the template into real, editable note text exactly once.
      * Persist the marker separately: detecting headings in the body would
