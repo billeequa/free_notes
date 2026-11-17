@@ -72,21 +72,16 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
     }
     LaunchedEffect(active) { if (active) model.load() }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("E Reader", style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { model.load(force = true) }, enabled = !loading) { Text("Refresh") }
-            }
-        }
         if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
         when {
-            loading -> CircularProgressIndicator()
-            books.isEmpty() -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center) {
-                Text("No EPUBs found in your books folders.")
-                Button(onClick = { picker.launch(null) }) { Text("Add Books Folder") }
-                TextButton(onClick = onSettings) { Text("Open Settings") }
+            loading -> { ReaderLibraryHeader(loading) { model.load(force = true) }; CircularProgressIndicator() }
+            books.isEmpty() -> Box(Modifier.fillMaxSize()) {
+                ReaderLibraryHeader(loading) { model.load(force = true) }
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No EPUBs found in your books folders.")
+                    Button(onClick = { picker.launch(null) }) { Text("Add Books Folder") }
+                    TextButton(onClick = onSettings) { Text("Open Settings") }
+                }
             }
             else -> LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -94,6 +89,7 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             ) {
+                item(key = "library-controls") { ReaderLibraryHeader(loading) { model.load(force = true) } }
                 items(books, key = { it.uri.toString() }) { book ->
                     Card(Modifier.fillMaxWidth().clickable {
                         context.startActivity(Intent(context, EpubReaderActivity::class.java)
@@ -125,6 +121,16 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ReaderLibraryHeader(loading: Boolean, onRefresh: () -> Unit) {
+    // An ordinary first list item, matching Notes' Sort by row; never a sticky overlay.
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically) {
+        Text("E Reader", style = MaterialTheme.typography.titleMedium)
+        FilledTonalButton(onClick = onRefresh, enabled = !loading) { Text("Refresh") }
     }
 }
 

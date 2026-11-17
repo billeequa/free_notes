@@ -142,6 +142,8 @@ class EpubReaderActivity : FragmentActivity() {
                                         val initial = runCatching { library.locator(uri)?.let { Locator.fromJSON(JSONObject(it)) } }.getOrNull()
                                         supportFragmentManager.fragmentFactory = EpubNavigatorFactory(reading).createFragmentFactory(
                                             initialLocator = initial,
+                                            // Compose already applies safe drawing insets; do not pad the cutout twice.
+                                            configuration = EpubNavigatorFragment.Configuration(shouldApplyInsetsPadding = false),
                                             initialPreferences = preferences(theme, fontScale, colors.background.toArgb(), colors.onBackground.toArgb()),
                                             listener = object : EpubNavigatorFragment.Listener {
                                                 override fun onExternalLinkActivated(url: AbsoluteUrl) {

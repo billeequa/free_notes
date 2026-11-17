@@ -401,6 +401,16 @@ function App() {
       setBusy(false);
     }
   }
+  async function completeTask(e: Entry) {
+    if (!cloud || busy) return;
+    setBusy(true);
+    try {
+      const result = await cloud.completeTask(e);
+      if (!result) setMessage("Review the sync conflict to finish completing this task.");
+    } catch (error) {
+      setMessage((error as Error).message);
+    } finally { update(v => v + 1); setBusy(false); }
+  }
   async function showHistory() {
     if (!cloud || !selected) return;
     try {
@@ -470,14 +480,15 @@ function App() {
         <div className="task-main">
           <button
             className="check"
-            aria-label={p.completed_at ? "Reopen task" : "Complete task"}
+            aria-label={p.completed_at ? "Reopen task" : p.repeat_on_complete ? "Complete repeating task" : "Complete task"}
+            disabled={busy}
             onClick={() =>
               p.completed_at
                 ? void mutate(e, { ...p, completed_at: null })
                 : setCompletion(p.id)
             }
           >
-            {p.completed_at || completion === p.id ? "✓" : ""}
+            {p.completed_at || completion === p.id ? "✓" : p.repeat_on_complete ? "↻" : ""}
           </button>
           <button className="task-title" onClick={() => void openEntry(e)}>
             <strong>
@@ -507,6 +518,9 @@ function App() {
                   {f.replace("_", " ")}
                 </button>
               ))}
+              {!p.completed_at && <button onClick={() => void mutate(e, {...p, repeat_on_complete: !p.repeat_on_complete})}>
+                ↻ {p.repeat_on_complete ? "Stop repeating" : "Repeat after completion"}
+              </button>}
               <button onClick={() => void mutate(e, p, true)}>
                 Move to Trash
               </button>
@@ -521,10 +535,7 @@ function App() {
               title="Confirm task completion"
               onClick={() => {
                 setCompletion(null);
-                void mutate(e, {
-                  ...p,
-                  completed_at: new Date().toISOString(),
-                });
+                void completeTask(e);
               }}
             >
               ✓
@@ -1089,6 +1100,8 @@ function App() {
                         }
                       />
                       <div className="flags">
+                        {!draft.completed_at && <label><input type="checkbox" checked={!!draft.repeat_on_complete}
+                          onChange={() => edit({...draft, repeat_on_complete: !draft.repeat_on_complete})} />↻ Repeat after completion</label>}
                         {Object.entries(symbols).map(([f, icon]) => (
                           <label key={f}>
                             <input

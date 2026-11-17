@@ -138,3 +138,31 @@ test("pending write meeting a concurrent edit becomes conflict, not a silent rep
     "remote concurrent",
   );
 });
+
+test("repeating completion retries a lost successor reply without duplicate copies", async () => {
+  const h = harness();
+  const p = {...newPayload("task", "Repeat"), repeat_on_complete: true, description: "Keep details"};
+  const base = (await h.client.save(p, undefined))!;
+  h.drop();
+  await assert.rejects(h.client.completeTask(base));
+  assert.equal(h.records.size, 2);
+  const completed = (await h.client.completeTask(base))!;
+  assert.ok(completed.payload.completed_at);
+  assert.equal(completed.payload.repeat_on_complete, undefined);
+  assert.equal(h.records.size, 2);
+  const successor = [...h.client.entries.values()].find(e => e.payload.id !== p.id)!;
+  assert.equal(successor.payload.repeat_on_complete, true);
+  assert.equal(successor.payload.description, "Keep details");
+  await h.client.completeTask(base); // Stale double click after acknowledgment.
+  assert.equal(h.records.size, 2);
+  await h.client.completeTask(successor);
+  assert.equal(h.records.size, 3);
+});
+
+test("ordinary completion and disabling repeat do not create a successor", async () => {
+  const h = harness();
+  const p = newPayload("task", "One off");
+  const base = (await h.client.save(p, undefined))!;
+  await h.client.completeTask(base);
+  assert.equal(h.records.size, 1);
+});

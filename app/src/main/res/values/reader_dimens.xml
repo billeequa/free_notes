@@ -1,0 +1,4 @@
+<resources>
+    <!-- Readium defaults to 40dp at both ends (20dp in landscape). Menus overlay the page. -->
+    <dimen name="readium_navigator_epub_vertical_padding">4dp</dimen>
+</resources>

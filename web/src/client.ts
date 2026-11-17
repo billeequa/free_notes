@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { completeRepeatingTask } from "../../protocol/repeat";
 import { assertCloudIdentity, mergeTask } from "../../protocol/merge";
 import { emailSendError } from "./authReturn";
 import {
@@ -517,6 +518,20 @@ export class Cloud {
       p_cursor: this.cursor,
     });
   }
+  async completeTask(base: Entry): Promise<Entry | null> {
+    const current = this.entries.get(base.payload.id) ?? base;
+    if (current.remote.deleted || current.payload.completed_at) return current;
+    const {completed, next} = completeRepeatingTask(current.payload);
+    // Save the continuation first. A lost reply retries the same operation/ID; an
+    // incomplete parent remains visible and can safely be completed again.
+    if (next && !this.entries.has(next.id)) {
+      const queued = this.pending.get(next.id);
+      if (!await this.save(queued?.payload ?? next, undefined)) return null;
+    }
+    const queued = this.pending.get(completed.id);
+    return this.save(queued?.payload.completed_at ? queued.payload : completed, current);
+  }
+
   async save(
     payload: Payload,
     base: Entry | undefined,

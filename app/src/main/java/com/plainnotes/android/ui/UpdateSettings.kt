@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import com.plainnotes.android.BuildConfig
 import com.plainnotes.android.update.AppUpdates
@@ -45,9 +46,11 @@ fun UpdateSettings() {
             install(file)
         } }
     }
-    Text("Updates", style = MaterialTheme.typography.titleMedium)
-    Text("Installed: ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
-    TextButton(enabled = !busy, onClick = { perform {
+    Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Text("Installed: ${BuildConfig.VERSION_NAME}", Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodyMedium)
+    }
+    FilledTonalButton(enabled = !busy, onClick = { perform {
         release = null
         val latest = AppUpdates.latest()
         if (latest != null && latest.versionCode > BuildConfig.VERSION_CODE) {
@@ -63,11 +66,13 @@ fun UpdateSettings() {
         } }) { Text("Download and install update") }
     }
     apkPath?.let { path ->
-        if (File(path).exists()) TextButton(enabled = !busy, onClick = { perform { install(File(path)) } }) { Text("Install update") }
+        if (File(path).exists()) FilledTonalButton(enabled = !busy, onClick = { perform { install(File(path)) } }) { Text("Install update") }
     }
-    TextButton(enabled = !busy, onClick = { perform {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    OutlinedButton(enabled = !busy, onClick = { perform {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AppUpdates.releasesUrl)))
-    } }) { Text("Open GitHub Releases") }
-    TextButton(enabled = !busy, onClick = { picker.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream")) }) { Text("Install downloaded APK") }
+    } }) { Text("GitHub releases") }
+    OutlinedButton(enabled = !busy, onClick = { picker.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream")) }) { Text("Install APK") }
+    }
     message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 }

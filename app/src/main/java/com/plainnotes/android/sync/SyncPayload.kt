@@ -37,6 +37,7 @@ object SyncPayload {
         .put("description", t.description).put("completed_at", t.completedAt?.toInstant()?.toString() ?: JSONObject.NULL)
         .put("flagged", t.flagged).put("flags", JSONArray(TodoFlag.entries.filter { it in t.flags }.map { it.key }))
         .put("order", t.addedAt.toInstant().toEpochMilli())
+        .apply { if (t.repeatOnComplete) put("repeat_on_complete", true) }
     fun validate(p: JSONObject, id: String): JSONObject {
         require(p.getString("id") == id && p.getString("kind") in listOf("note", "journal", "task"))
         for (key in listOf("title", "body", "description")) require(p.get(key) is String)
@@ -45,6 +46,11 @@ object SyncPayload {
         date(p, "journal_date"); date(p, "double_x_date")
         if (!p.isNull("completed_at")) OffsetDateTime.parse(p.getString("completed_at"))
         p.getBoolean("flagged"); p.getLong("order")
+        if (p.has("repeat_on_complete")) {
+            require(p.get("repeat_on_complete") is Boolean)
+            require(!p.getBoolean("repeat_on_complete") || p.getString("kind") == "task")
+            if (!p.getBoolean("repeat_on_complete")) p.remove("repeat_on_complete")
+        }
         require(p.getString("subtype") in listOf("standard", "double_x_day"))
         require(p.getInt("template_version") >= 0)
         val flags = p.getJSONArray("flags")
@@ -60,15 +66,16 @@ object SyncPayload {
         date(p, "journal_date"), p.getInt("template_version"))
     fun todo(p: JSONObject) = TodoItem(p.getString("id"), p.getString("title"), p.getString("description"),
         OffsetDateTime.parse(p.getString("created_at")), if (p.isNull("completed_at")) null else OffsetDateTime.parse(p.getString("completed_at")),
-        p.getBoolean("flagged"), TodoFlag.entries.filter { flag -> (0 until p.getJSONArray("flags").length()).any { p.getJSONArray("flags").getString(it) == flag.key } }.toSet())
+        p.getBoolean("flagged"), TodoFlag.entries.filter { flag -> (0 until p.getJSONArray("flags").length()).any { p.getJSONArray("flags").getString(it) == flag.key } }.toSet(), p.optBoolean("repeat_on_complete", false))
     fun mergeTask(base: JSONObject, local: JSONObject, remote: JSONObject): JSONObject? {
         if (listOf(base, local, remote).any { it.getString("kind") != "task" || it.getString("id") != base.getString("id") }) return null
         val result = JSONObject(remote.toString())
-        for (key in local.keys()) {
+        val keys = (base.keys().asSequence() + local.keys().asSequence() + remote.keys().asSequence()).toSet()
+        for (key in keys) {
             if (key == "modified_at") continue
-            if (canonical(local.get(key)) == canonical(base.get(key))) continue
-            if (canonical(remote.get(key)) != canonical(base.get(key)) && canonical(remote.get(key)) != canonical(local.get(key))) return null
-            result.put(key, local.get(key))
+            if (canonical(local.opt(key)) == canonical(base.opt(key))) continue
+            if (canonical(remote.opt(key)) != canonical(base.opt(key)) && canonical(remote.opt(key)) != canonical(local.opt(key))) return null
+            if (local.has(key)) result.put(key, local.get(key)) else result.remove(key)
         }
         return result
     }

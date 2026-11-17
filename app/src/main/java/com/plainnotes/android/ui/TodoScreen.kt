@@ -32,6 +32,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Repeat
+import com.plainnotes.android.data.RepeatingTodos
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -149,7 +151,7 @@ fun TodoScreen(
     }
     fun change(transform: (List<TodoItem>) -> List<TodoItem>) = viewModel.enqueueTodoChange(transform)
     fun complete(id: String) = change { todos ->
-        todos.map { if (it.id == id && it.completedAt == null) it.copy(completedAt = OffsetDateTime.now()) else it }
+        RepeatingTodos.complete(todos, id)
     }
     fun jumpToLatest() {
         revealedId = null
@@ -355,6 +357,18 @@ fun TodoScreen(
                                             val color = if (done) completedText
                                                 else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (item.repeatOnComplete && !done) {
+                                                    IconButton(onClick = {
+                                                        if (completionPending) { revealedId = null; checkboxConfirmId = null }
+                                                        else { revealedId = null; checkboxConfirmId = item.id }
+                                                    }, modifier = Modifier.semantics {
+                                                        stateDescription = if (completionPending) "Awaiting confirmation" else "Repeats after completion"
+                                                    }) {
+                                                        Icon(if (completionPending) Icons.Rounded.Check else Icons.Rounded.Repeat,
+                                                            if (completionPending) "Cancel completion: ${item.title}" else "Complete repeating task: ${item.title}",
+                                                            tint = if (completionPending) MaterialTheme.colorScheme.primary.copy(alpha = 0.65f) else color)
+                                                    }
+                                                } else {
                                                 Checkbox(
                                                     checked = done || completionPending,
                                                     onCheckedChange = {
@@ -380,6 +394,7 @@ fun TodoScreen(
                                                         }
                                                     },
                                                 )
+                                                }
                                             Text(
                                                 modifier = Modifier.weight(1f),
                                                 text = listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "),
@@ -413,6 +428,14 @@ fun TodoScreen(
                                                     if (done) change { todos -> todos.map { if (it.id == item.id) it.copy(completedAt = null) else it } }
                                                     else revealedId = item.id
                                                 })
+                                                if (!done) DropdownMenuItem(
+                                                    text = { Text(if (item.repeatOnComplete) "Stop repeating" else "Repeat after completion") },
+                                                    leadingIcon = { Icon(Icons.Rounded.Repeat, null) },
+                                                    onClick = {
+                                                        menuId = null
+                                                        change { todos -> todos.map { if (it.id == item.id && it.completedAt == null) it.copy(repeatOnComplete = !it.repeatOnComplete) else it } }
+                                                    },
+                                                )
                                                 DropdownMenuItem(text = { Text("Delete") }, onClick = { menuId = null; deleteId = item.id })
                                             }
                                         }
@@ -444,13 +467,13 @@ fun TodoScreen(
     }
     if (creating || editingId != null) {
         val original = allItems.find { it.id == editingId }
-        TodoEditDialog(original, onDismiss = { creating = false; editingId = null }) { title, description, flags ->
-            val item = TodoItem(id = newTaskId, title = title, description = description, flags = flags)
+        TodoEditDialog(original, onDismiss = { creating = false; editingId = null }) { title, description, flags, repeat ->
+            val item = TodoItem(id = newTaskId, title = title, description = description, flags = flags, repeatOnComplete = repeat)
             val saved = viewModel.changeTodos { todos ->
                 if (original == null) {
                     if (todos.none { it.id == item.id }) todos + item else todos
                 } else todos.map { if (it.id == original.id) it.copy(
-                    title = title, description = description, flags = flags,
+                    title = title, description = description, flags = flags, repeatOnComplete = repeat,
                     flagged = it.flagged && flags.isEmpty(),
                 ) else it }
             }
@@ -482,11 +505,12 @@ fun TodoScreen(
 private fun TodoEditDialog(
     original: TodoItem?,
     onDismiss: () -> Unit,
-    onSave: suspend (String, String, Set<TodoFlag>) -> Boolean,
+    onSave: suspend (String, String, Set<TodoFlag>, Boolean) -> Boolean,
 ) {
     var title by rememberSaveable(original?.id) { mutableStateOf(original?.title.orEmpty()) }
     var description by rememberSaveable(original?.id) { mutableStateOf(original?.description.orEmpty()) }
     var flagMask by rememberSaveable(original?.id) { mutableStateOf(original?.flags?.flagMask() ?: 0) }
+    var repeat by rememberSaveable(original?.id) { mutableStateOf(original?.repeatOnComplete ?: false) }
     var detailsExpanded by rememberSaveable(original?.id) { mutableStateOf(!original?.description.isNullOrBlank()) }
     var discardConfirmation by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -496,7 +520,7 @@ private fun TodoEditDialog(
     fun requestDismiss() {
         if (saving) return
         if (title != original?.title.orEmpty() || description != original?.description.orEmpty() ||
-            flagMask != (original?.flags?.flagMask() ?: 0)) discardConfirmation = true
+            flagMask != (original?.flags?.flagMask() ?: 0) || repeat != (original?.repeatOnComplete ?: false)) discardConfirmation = true
         else onDismiss()
     }
     fun save() {
@@ -504,7 +528,7 @@ private fun TodoEditDialog(
         saving = true
         scope.launch {
             try {
-                error = !onSave(title.trim(), description, TodoFlag.entries.filter { flagMask and it.bit != 0 }.toSet())
+                error = !onSave(title.trim(), description, TodoFlag.entries.filter { flagMask and it.bit != 0 }.toSet(), repeat)
             } finally { saving = false }
         }
     }
@@ -524,8 +548,25 @@ private fun TodoEditDialog(
                 TextButton(enabled = !saving, onClick = { detailsExpanded = !detailsExpanded }) {
                     Text(if (detailsExpanded) "Hide description" else "Add description")
                 }
-                if (detailsExpanded) OutlinedTextField(description, { description = it },
-                    label = { Text("Description (optional)") }, minLines = 3, maxLines = 8, enabled = !saving)
+                if (detailsExpanded) Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+                    TextField(description, { description = it }, label = { Text("Description (optional)") },
+                        minLines = 3, maxLines = 8, enabled = !saving,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent))
+                    // Draw the opaque boundary after the scrolling text; no outline can peek above it.
+                    HorizontalDivider(Modifier.align(Alignment.BottomCenter), thickness = 2.dp, color = MaterialTheme.colorScheme.primary)
+                }
+                if (original?.completedAt == null) Row(Modifier.fillMaxWidth().toggleable(repeat, enabled = !saving,
+                    role = Role.Checkbox) { repeat = it }, verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(repeat, onCheckedChange = null, enabled = !saving)
+                    Icon(Icons.Rounded.Repeat, null, Modifier.size(20.dp))
+                    Text("Repeat after completion", Modifier.padding(start = 8.dp))
+                }
                 if (error) Text("Could not save. Your text is still here; try again.", color = MaterialTheme.colorScheme.error)
                 Column {
                     TodoFlag.entries.forEach { flag ->
@@ -550,7 +591,7 @@ private fun TodoEditDialog(
     if (discardConfirmation) AlertDialog(
         onDismissRequest = { discardConfirmation = false },
         title = { Text("Discard changes?") },
-        text = { Text("Your unsaved title, description, and flags will be discarded.") },
+        text = { Text("Your unsaved changes will be discarded.") },
         confirmButton = { TextButton(onClick = { discardConfirmation = false; onDismiss() }) { Text("Discard") } },
         dismissButton = { TextButton(onClick = { discardConfirmation = false }) { Text("Keep editing") } },
     )

@@ -33,12 +33,11 @@ fun WebsiteSettings(workspace: Workspace = Workspace.PERSONAL) {
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     val address = website.trimEnd('/') + if (workspace == Workspace.WORK) "/work" else ""
-    Text("Website", style = MaterialTheme.typography.titleMedium)
-    TextButton(onClick = {
+    FilledTonalButton(onClick = {
         error = null
         try { uriHandler.openUri(address) }
         catch(_: IllegalArgumentException) { error = "No browser is available. Open the address above on another device." }
-    }) { Text(address) }
+    }) { Text("Open website") }
     error?.let { Text(it,style=MaterialTheme.typography.bodySmall) }
 }
 
@@ -52,6 +51,8 @@ fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
     val uriHandler=LocalUriHandler.current
     val prefs=remember {SyncRuntime.prefs(context)}
     var expanded by remember {mutableStateOf(false)}
+    var confirmDisable by remember {mutableStateOf(false)}
+    var lastSync by remember {mutableLongStateOf(prefs.getLong(lastSyncKey,0))}
     var enabled by remember {mutableStateOf(SyncRuntime.enabled(context))}
     var status by remember {mutableStateOf(prefs.getString(statusKey,"Saved on phone — sync disabled")!!)}
     var useCustom by remember {mutableStateOf(SyncConnection.customWebsite(context)!=null)}
@@ -68,6 +69,16 @@ fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
     var conflicts by remember {mutableStateOf<List<JSONObject>>(emptyList())}
     var repairText by remember {mutableStateOf("")}
     var comparison by remember {mutableStateOf<JSONObject?>(null)}
+    DisposableEffect(prefs, workspace) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            status = prefs.getString(statusKey, "Saved on phone")!!
+            enabled = SyncRuntime.enabled(context)
+            lastSync = prefs.getLong(lastSyncKey, 0)
+            email = prefs.getString("email", "")!!
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     DisposableEffect(Unit) { onDispose {setup?.key?.fill(0);setup?.recoveryCode=null} }
     LaunchedEffect(expanded,enabled) {
         if(expanded)while(true) {
@@ -76,23 +87,31 @@ fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
             delay(1500)
         }
     }
-    fun run(block:suspend()->Unit) {scope.launch {busy=true;error=null;try{block()}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(e:Exception){error=e.message ?: "Sync setup paused. Phone files are safe."}finally{busy=false}}}
-    Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Text(if(workspace==Workspace.WORK)"Work Web Sync" else "Web Sync",style=MaterialTheme.typography.titleMedium)
-        Text(status,style=MaterialTheme.typography.bodyMedium)
-        Text("Optional. Sync covers Personal and enabled Work mode in separate encrypted feeds. Your phone files remain available without an account or server.",style=MaterialTheme.typography.bodySmall)
-        if(!expanded)TextButton(onClick={expanded=true}){Text(if(enabled)"Manage Web Sync" else "Set up Web Sync")}
+    fun run(block:suspend()->Unit) {
+        if (busy) return
+        busy = true; error = null
+        scope.launch { try { block() } catch(e:kotlinx.coroutines.CancellationException) { throw e }
+            catch(e:Exception) { error=e.message ?: "Sync paused. Phone files are safe." }
+            finally { busy=false } }
+    }
+    Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Text(if (enabled) status else "Sync is off · saved on phone", style=MaterialTheme.typography.bodyMedium)
+        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp), verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            if (enabled) Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.retry(context)}}}, enabled=!busy) { Text("Sync now") }
+            FilledTonalButton(onClick={expanded=!expanded}, enabled=!busy) {
+                Text(if (expanded) "Less" else if (enabled) "More" else "Set up sync")
+            }
+        }
         if(expanded) {
             if(enabled) {
                 Text(email)
-                Text("Pending: $counts · Last sync: "+prefs.getLong(lastSyncKey,0).let {if(it==0L)"Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))})
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.retry(context)}}},enabled=!busy){Text("Sync now")}
-                    OutlinedButton(onClick={SyncRuntime.disable(context);enabled=false},enabled=!busy){Text("Disable all sync")}
+                Text("Pending: $counts · Last sync: "+lastSync.let {if(it==0L)"Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))})
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp), verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    FilledTonalButton(enabled=!busy,onClick={run{val path=withContext(Dispatchers.IO){NotesRepository(context,workspace).backupForSync()};status="Verified local backup: $path"}}) { Text("Export backup") }
+                    OutlinedButton(enabled=!busy,onClick={SyncRuntime.disable(context);enabled=false;setup=null}) { Text("Reconnect") }
+                    OutlinedButton(enabled=!busy,onClick={confirmDisable=true}) { Text("Turn off sync") }
                 }
-                Text("Disabling sync keeps every phone file and the cloud copy. Recovery or reconnecting also never deletes local files.",style=MaterialTheme.typography.bodySmall)
-                OutlinedButton(enabled=!busy,onClick={run{val path=withContext(Dispatchers.IO){NotesRepository(context,workspace).backupForSync()};status="Verified local backup: $path"}}){Text("Export verified phone backup")}
-                TextButton(enabled=!busy,onClick={SyncRuntime.disable(context);enabled=false;setup=null}){Text("Sign in again")}
+                Text("Sync is encrypted. Phone files remain available without an account or server.", style=MaterialTheme.typography.bodySmall)
                 if(status.contains("repair",ignoreCase=true)||status.contains("Cloud state changed",ignoreCase=true)) {
                     Text("Repair keeps phone files, backs up both local content and sync evidence, and retains differing cloud versions as conflicts. Type REPAIR to explicitly approve a new cloud baseline.",style=MaterialTheme.typography.bodySmall)
                     OutlinedTextField(repairText,{repairText=it},label={Text("Repair confirmation")},modifier=Modifier.fillMaxWidth())
@@ -102,10 +121,10 @@ fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
                     OutlinedButton(onClick={comparison=conflict}){Text("Resolve: "+conflict.getJSONObject("local").optString("title","Untitled"))}
                 }
             } else if(setup==null) {
-                Text("Already set your JNotes password? Sign in below with the same email and password you use on the website.",style=MaterialTheme.typography.bodySmall)
+                Text("Use the same email and password as the website.",style=MaterialTheme.typography.bodySmall)
                 OutlinedTextField(email,{email=it},enabled=!busy,label={Text("Email")},modifier=Modifier.fillMaxWidth(),singleLine=true)
                 OutlinedTextField(password,{password=it},enabled=!busy,label={Text("Password")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth(),singleLine=true)
-                TextButton(enabled=!busy,onClick={useCustom=!useCustom}) {Text(if(useCustom) "Use JNotes connection" else "Advanced: self-hosted connection")}
+                FilledTonalButton(enabled=!busy,onClick={useCustom=!useCustom}) {Text(if(useCustom) "Use JNotes connection" else "Custom connection")}
                 if(useCustom) OutlinedTextField(customWeb,{customWeb=it},label={Text("Self-hosted website (HTTPS)")},modifier=Modifier.fillMaxWidth(),singleLine=true,enabled=!busy)
                 Button(enabled=!busy&&email.isNotBlank()&&password.isNotEmpty()&&(!useCustom||customWeb.isNotBlank()),onClick={run{
                     val prepared=withContext(Dispatchers.IO){SyncRuntime.signIn(context,email,password,if(useCustom)customWeb else null)}
@@ -119,10 +138,10 @@ fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
                         } else ""
                         "${tasks.size} tasks · ${docs.count{it.category==NoteCategory.NOTES}} notes · ${docs.count{it.category==NoteCategory.JOURNAL}} journal entries · ${trash.size} trashed documents\nApproximately ${bytes/1024} KiB of document text, plus tasks and metadata.\nCloud destination: $email\nExisting cloud revisions: ${prepared.vault.getLong("high_water")}$work"
                     }
-                }}){Text("Sign in and preview sync")}
-                Text("First time? Create your password on the website once. An email link opens the setup page; no numeric code is needed. Then return here to sign in.",style=MaterialTheme.typography.bodySmall)
-                for((label,fragment) in listOf("Set up my password on the website" to "setup","Forgot password?" to "recover")) {
-                    TextButton(enabled=!busy&&(!useCustom||customWeb.isNotBlank()),onClick={run{
+                }}){Text("Sign in & preview")}
+                Text("New account? Set your password on the website first.",style=MaterialTheme.typography.bodySmall)
+                for((label,fragment) in listOf("Create account" to "setup","Forgot password" to "recover")) {
+                    FilledTonalButton(enabled=!busy&&(!useCustom||customWeb.isNotBlank()),onClick={run{
                         val website=withContext(Dispatchers.IO){SyncRuntime.accountWebsite(context,if(useCustom)customWeb else null)}
                         uriHandler.openUri(website.trimEnd('/')+"/#"+fragment)
                     }}){Text(label)}
@@ -145,12 +164,16 @@ fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
                     withContext(Dispatchers.IO){SyncRuntime.enable(context,prepared,email)}
                     setup=null;enabled=true;confirmation="";approved=false
                 }}){Text("Back up phone and enable sync")}
-                TextButton(onClick={prepared.key.fill(0);prepared.recoveryCode=null;setup=null;approved=false;confirmation=""},enabled=!busy){Text("Cancel setup")}
+                FilledTonalButton(onClick={prepared.key.fill(0);prepared.recoveryCode=null;setup=null;approved=false;confirmation=""},enabled=!busy){Text("Cancel setup")}
             }
-            if(busy)LinearProgressIndicator(modifier=Modifier.fillMaxWidth())
-            error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         }
+        if(busy)LinearProgressIndicator(modifier=Modifier.fillMaxWidth())
+        error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
     }
+    if (confirmDisable) AlertDialog(onDismissRequest={confirmDisable=false}, title={Text("Turn off sync?")},
+        text={Text("This turns off sync for Personal and Work. Phone files and cloud copies are kept.")},
+        confirmButton={Button(onClick={confirmDisable=false;SyncRuntime.disable(context);enabled=false;setup=null}){Text("Turn off")}},
+        dismissButton={FilledTonalButton(onClick={confirmDisable=false}){Text("Cancel")}})
     comparison?.let {conflict ->
         AlertDialog(onDismissRequest={comparison=null},title={Text("Resolve sync conflict")},text={
             Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -159,6 +182,6 @@ fun WebSyncSettings(workspace: Workspace = Workspace.PERSONAL) {
                 Text("Cloud: "+conflict.getJSONObject("remote_content").let {it.optString("title")+"\n"+it.optString("body").ifEmpty {it.optString("description")}}.take(1500))
                 for((choice,label)in listOf("local" to "Keep Phone","remote" to "Keep Web","both" to "Save Both"))Button(onClick={run{withContext(Dispatchers.IO){SyncRuntime.resolve(context,conflict.getString("id"),choice,workspace)};comparison=null}},enabled=!busy){Text(label)}
             }
-        },confirmButton={TextButton(onClick={comparison=null}){Text("Later")}})
+        },confirmButton={FilledTonalButton(onClick={comparison=null}){Text("Later")}})
     }
 }

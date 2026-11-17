@@ -1,9 +1,9 @@
 package com.plainnotes.android.reader
 
-/** The curved edge reaches 20% of the page at mid-height and 12% at either end. */
+/** The curved edge reaches 32% of the page at mid-height and 20% at either end. */
 internal object ReaderTapZones {
-    const val END_WIDTH = 0.12f
-    const val MIDDLE_WIDTH = 0.20f
+    const val END_WIDTH = 0.20f
+    const val MIDDLE_WIDTH = 0.32f
     const val CURVE_CONTROL_WIDTH = 2 * MIDDLE_WIDTH - END_WIDTH
 
     fun edgeWidth(yFraction: Float): Float {

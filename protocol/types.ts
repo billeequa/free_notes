@@ -15,6 +15,7 @@ export interface Payload {
   flagged: boolean;
   flags: string[];
   order: number;
+  repeat_on_complete?: boolean;
 }
 export interface Envelope {
   protocol_version: 1;
@@ -86,6 +87,8 @@ export function validatePayload(p: Payload, id: string): Payload {
     !["standard", "double_x_day"].includes(p.subtype) ||
     !Number.isSafeInteger(p.template_version) ||
     typeof p.flagged !== "boolean" ||
+    (p.repeat_on_complete !== undefined && typeof p.repeat_on_complete !== "boolean") ||
+    (p.repeat_on_complete === true && p.kind !== "task") ||
     !Number.isFinite(Date.parse(p.created_at)) ||
     !Number.isFinite(Date.parse(p.modified_at)) ||
     (p.completed_at !== null && !Number.isFinite(Date.parse(p.completed_at)))
@@ -94,6 +97,7 @@ export function validatePayload(p: Payload, id: string): Payload {
   for (const date of [p.journal_date, p.double_x_date])
     if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date))
       throw Error("Invalid journal date");
+  if (p.repeat_on_complete === false) delete p.repeat_on_complete;
   p.flags = ["urgent", "important", "long_term"].filter((f) =>
     p.flags.includes(f),
   );
