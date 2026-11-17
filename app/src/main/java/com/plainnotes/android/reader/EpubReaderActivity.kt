@@ -24,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -39,6 +40,7 @@ import androidx.lifecycle.lifecycleScope
 import com.plainnotes.android.data.AppSettingsRepository
 import com.plainnotes.android.ui.ThemeMode
 import com.plainnotes.android.ui.theme.PlainNotesTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -83,6 +85,7 @@ class EpubReaderActivity : FragmentActivity() {
         var scrubbing by mutableStateOf(false)
         var controlInteraction by mutableIntStateOf(0)
         var showTapHints by mutableStateOf(false)
+        var seekError by mutableStateOf<String?>(null)
 
         lifecycleScope.launch { settings.themeMode.collectLatest { theme = ThemeMode.fromStorage(it) } }
         lifecycleScope.launch { settings.fontScale.collectLatest { fontScale = it } }
@@ -94,12 +97,14 @@ class EpubReaderActivity : FragmentActivity() {
         setContent {
             PlainNotesTheme(theme, fontScale) {
                 val colors = MaterialTheme.colorScheme
+                val toolbarColors = plainNotesTopAppBarColors()
                 SideEffect {
-                    window.statusBarColor = colors.background.toArgb()
-                    window.navigationBarColor = colors.background.toArgb()
+                    window.statusBarColor = Color.Transparent.toArgb()
+                    window.navigationBarColor = Color.Transparent.toArgb()
                     WindowInsetsControllerCompat(window, window.decorView).apply {
-                        isAppearanceLightStatusBars = colors.background.luminance() > 0.5f
-                        isAppearanceLightNavigationBars = colors.background.luminance() > 0.5f
+                        isAppearanceLightStatusBars = if (controls) toolbarColors.titleContentColor.luminance() < 0.5f
+                            else colors.background.luminance() > 0.5f
+                        isAppearanceLightNavigationBars = (if (controls) colors.surface else colors.background).luminance() > 0.5f
                     }
                 }
                 val reading = publication
@@ -195,7 +200,7 @@ class EpubReaderActivity : FragmentActivity() {
                                         overflow = TextOverflow.Ellipsis) },
                                     navigationIcon = { IconButton(onClick = ::finish) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library") } },
                                     actions = { IconButton(onClick = { toc = true; controlInteraction++ }) { Icon(Icons.Rounded.List, "Table of contents") } },
-                                    colors = plainNotesTopAppBarColors())
+                                    colors = toolbarColors)
                             }
                             AnimatedVisibility(visible = controls, enter = fadeIn(), exit = fadeOut(),
                                 modifier = Modifier.align(Alignment.BottomCenter)) {
@@ -206,11 +211,16 @@ class EpubReaderActivity : FragmentActivity() {
                                             onValueChange = { scrubProgress = it; scrubbing = true; controlInteraction++ },
                                             onValueChangeFinished = {
                                                 val target = scrubProgress.toDouble()
+                                                seekError = null
                                                 lifecycleScope.launch {
                                                     try {
-                                                        reading.locateProgression(target)?.let { locator ->
-                                                            if (navigator?.go(locator) == true) progress = target
-                                                        }
+                                                        val locator = reading.locateProgression(target)
+                                                        if (locator != null && navigator?.go(locator) == true) progress = target
+                                                        else seekError = "Unable to change reading position."
+                                                    } catch (e: CancellationException) {
+                                                        throw e
+                                                    } catch (e: Exception) {
+                                                        seekError = "Unable to change reading position."
                                                     } finally {
                                                         scrubbing = false
                                                         controlInteraction++
@@ -219,6 +229,7 @@ class EpubReaderActivity : FragmentActivity() {
                                             },
                                             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Reading progress" },
                                         )
+                                        seekError?.let { Text(it, color = colors.error, style = MaterialTheme.typography.labelMedium) }
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically) {
                                             IconButton(onClick = { navigator?.goBackward(); controlInteraction++ }) {

@@ -1013,10 +1013,12 @@ private fun TrashScreen(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(onClick = { onRestore(note) }, enabled = !clearingTrash,
+                                modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp),
                                 shape = RoundedCornerShape(50)) {
                                 Text("Restore")
                             }
                             Button(onClick = { pendingPermanentDelete = note }, enabled = !clearingTrash,
+                                modifier = Modifier.weight(1.5f), contentPadding = PaddingValues(horizontal = 8.dp),
                                 shape = RoundedCornerShape(50), colors = trashButtonColors()) {
                                 Text("Delete forever")
                             }
