@@ -68,8 +68,11 @@ internal object EpubMetadata {
             first?.let {
                 it.textContent = author.trim()
                 it.removeAttributeNS(OPF, "file-as"); it.removeAttribute("file-as")
-                metadata.setAttributeNS(XMLConstants.XMLNS_ATTRIBUTE_NS_URI, "xmlns:opf", OPF)
-                it.setAttributeNS(OPF, "opf:role", "aut")
+                it.removeAttributeNS(OPF, "role"); it.removeAttribute("role")
+                if (!document.documentElement.getAttribute("version").startsWith("3")) {
+                    metadata.setAttributeNS(XMLConstants.XMLNS_ATTRIBUTE_NS_URI, "xmlns:opf", OPF)
+                    it.setAttributeNS(OPF, "opf:role", "aut")
+                }
             }
             val creatorId = first?.getAttribute("id").orEmpty()
             children(metadata).filter { element ->

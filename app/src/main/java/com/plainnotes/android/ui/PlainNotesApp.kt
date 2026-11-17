@@ -814,10 +814,10 @@ private fun SettingsScreen(
                 }
                 Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodySmall)
                 if (workspaceSettings.active == Workspace.PERSONAL) {
-                FilledTonalButton(onClick = { foldersExpanded = !foldersExpanded }) {
-                    Text(if (foldersExpanded) "Hide books folders" else "Books folders")
-                }
-                if (foldersExpanded) BooksFoldersSettings()
+                    FilledTonalButton(onClick = { foldersExpanded = !foldersExpanded }) {
+                        Text(if (foldersExpanded) "Hide books folders" else "Books folders")
+                    }
+                    if (foldersExpanded) BooksFoldersSettings()
                 }
             }
             SettingsSection("Trash") {

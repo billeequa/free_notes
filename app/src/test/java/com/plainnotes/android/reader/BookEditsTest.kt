@@ -121,7 +121,7 @@ private class EpubDocumentsProvider(val root: File) : ContentProvider() {
             "document_id" -> id(f); "_display_name" -> f.name
             "mime_type" -> if (f.isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else "application/epub+zip"
             "last_modified" -> f.lastModified(); "_size" -> f.length(); "flags" -> 0; else -> null
-        } }.toTypedArray()) } }
+        } }.toTypedArray<Any?>()) } }
     }
     override fun getType(uri: Uri) = if (file(uri).isDirectory) DocumentsContract.Document.MIME_TYPE_DIR else "application/epub+zip"
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
