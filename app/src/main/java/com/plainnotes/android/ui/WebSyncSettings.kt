@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -33,11 +34,17 @@ fun WebsiteSettings(workspace: Workspace = Workspace.PERSONAL) {
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     val address = website.trimEnd('/') + if (workspace == Workspace.WORK) "/work" else ""
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
     FilledTonalButton(onClick = {
         error = null
         try { uriHandler.openUri(address) }
         catch(_: IllegalArgumentException) { error = "No browser is available. Open the address above on another device." }
     }) { Text("Open website") }
+    androidx.compose.foundation.text.selection.SelectionContainer {
+        Text(address.removePrefix("https://"), style = MaterialTheme.typography.bodySmall)
+    }
+    }
     error?.let { Text(it,style=MaterialTheme.typography.bodySmall) }
 }
 

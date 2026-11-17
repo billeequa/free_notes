@@ -779,9 +779,7 @@ private fun SettingsScreen(
             .padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Spacer(Modifier.height(2.dp))
             SettingsSection("Appearance") {
-                SettingsChoice("Theme", ThemeMode.entries.map { it.label to (themeMode == it) }) { label ->
-                    onThemeSelected(ThemeMode.entries.first { it.label == label })
-                }
+                ThemeChoices(themeMode, onThemeSelected)
                 SettingsChoice("Font size", fontSizes.map { it.first to (fontScale == it.second) }) { label ->
                     onFontScaleSelected(fontSizes.first { it.first == label }.second)
                 }
@@ -802,14 +800,11 @@ private fun SettingsScreen(
                 }
             }
             if (workspaceSettings.active == Workspace.PERSONAL) SettingsSection("E Reader") {
+                ReaderFontSizeSetting()
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Show E Reader", Modifier.weight(1f))
                     androidx.compose.material3.Switch(showReader, onCheckedChange = onShowReader)
                 }
-                FilledTonalButton(onClick = { foldersExpanded = !foldersExpanded }) {
-                    Text(if (foldersExpanded) "Hide books folders" else "Books folders")
-                }
-                if (foldersExpanded) BooksFoldersSettings()
             }
             SettingsSection("Storage") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -818,6 +813,12 @@ private fun SettingsScreen(
                     FilledTonalButton(onClick = onPickFolder) { Text("Change folder") }
                 }
                 Text("Notes and tasks save automatically to your selected folder.", style = MaterialTheme.typography.bodySmall)
+                if (workspaceSettings.active == Workspace.PERSONAL) {
+                    FilledTonalButton(onClick = { foldersExpanded = !foldersExpanded }) {
+                        Text(if (foldersExpanded) "Hide books folders" else "Books folders")
+                    }
+                    if (foldersExpanded) BooksFoldersSettings()
+                }
             }
             SettingsSection("Trash") {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1420,9 +1421,9 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Settings now has compact, clearly separated sections. Updates is just below Appearance, with pill controls. Sync now is easy to reach; account and repair options are under More.")
-            Text("Repeating tasks show a repeat icon and create a fresh copy when completed. Enable Repeat after completion while adding or editing a task, or use its task menu. Stop repeating turns it off on the live copy.")
-            Text("The reader has larger page-turn areas and much smaller top and bottom margins. The library heading stays at the start of the list, like Notes’ controls, and scrolls out of view.")
+            Text("Long-press a book to rename its file or edit its title and author. The .epub extension stays fixed; book metadata takes priority in the library.")
+            Text("Reader text has its own font size. Tap the page, then Aa, or choose a size in Settings. Repeating tasks use the standard checkbox, with the repeat symbol after the name and Repeat last in the optional tags.")
+            Text("Settings shows theme previews and font choices. Check for updates sits beside the current version; books folders are in Storage, and the website address appears beside Open website.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )

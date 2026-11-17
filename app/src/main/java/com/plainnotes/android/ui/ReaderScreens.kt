@@ -7,6 +7,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -37,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalDensity
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollToTopRequest: Int = 0) {
     val context = LocalContext.current
@@ -46,6 +51,7 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
     val loading = state.loading
     val error = state.error
     val listState = rememberLazyListState()
+    var editing by remember { mutableStateOf<BookEntry?>(null) }
     var consumedTopRequest by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(scrollToTopRequest, loading, books.isNotEmpty()) {
         if (scrollToTopRequest != consumedTopRequest && !loading && books.isNotEmpty()) {
@@ -91,10 +97,13 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
             ) {
                 item(key = "library-controls") { ReaderLibraryHeader(loading) { model.load(force = true) } }
                 items(books, key = { it.uri.toString() }) { book ->
-                    Card(Modifier.fillMaxWidth().clickable {
-                        context.startActivity(Intent(context, EpubReaderActivity::class.java)
-                            .putExtra("book_uri", book.uri.toString()))
-                    }) {
+                    Card(Modifier.fillMaxWidth().combinedClickable(
+                        onLongClickLabel = "Rename or edit book details",
+                        onLongClick = { editing = book },
+                        onClick = {
+                            context.startActivity(Intent(context, EpubReaderActivity::class.java)
+                                .putExtra("book_uri", book.uri.toString()).putExtra("book_display_title", book.displayTitle))
+                        })) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             val density = LocalDensity.current
                             val width = with(density) { 60.dp.roundToPx() }
@@ -104,10 +113,10 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
                                     book.coverPath?.let { CoverThumbnails.load(it, width, height) }
                                 }
                             }
-                            if (cover != null) Image(cover!!.asImageBitmap(), book.title, Modifier.size(width = 60.dp, height = 90.dp))
+                            if (cover != null) Image(cover!!.asImageBitmap(), book.displayTitle, Modifier.size(width = 60.dp, height = 90.dp))
                             else if (book.coverPath != null) Spacer(Modifier.size(width = 60.dp, height = 90.dp))
                             Column(Modifier.padding(start = 12.dp)) {
-                                Text(book.title, style = MaterialTheme.typography.titleMedium)
+                                Text(book.displayTitle, style = MaterialTheme.typography.titleMedium)
                                 if (book.author.isNotBlank()) Text(book.author)
                                 val lastRead = if (book.lastRead == 0L) "Not started" else {
                                     val date = Instant.ofEpochMilli(book.lastRead).atZone(ZoneId.systemDefault())
@@ -122,16 +131,83 @@ fun ReaderLibraryScreen(onSettings: () -> Unit, active: Boolean = true, scrollTo
             }
         }
     }
+    editing?.let { book ->
+        BookDetailsDialog(book, model, onDismiss = { editing = null })
+    }
+
 }
 
 @Composable
 private fun ReaderLibraryHeader(loading: Boolean, onRefresh: () -> Unit) {
     // An ordinary first list item, matching Notes' Sort by row; never a sticky overlay.
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+    var fontSettings by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Text("E Reader", style = MaterialTheme.typography.titleMedium)
+        Text("E Reader", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        FilledTonalButton(onClick = { fontSettings = true }) { Text("Aa") }
         FilledTonalButton(onClick = onRefresh, enabled = !loading) { Text("Refresh") }
     }
+    if (fontSettings) ReaderFontSizeDialog(onDismiss = { fontSettings = false })
+}
+
+@Composable
+private fun BookDetailsDialog(book: BookEntry, model: ReaderLibraryViewModel, onDismiss: () -> Unit) {
+    var stem by rememberSaveable(book.uri.toString()) { mutableStateOf(book.filename.dropLast(5)) }
+    var title by rememberSaveable(book.uri.toString()) { mutableStateOf(book.title) }
+    var author by rememberSaveable(book.uri.toString()) { mutableStateOf(book.author) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    var needsAccess by remember { mutableStateOf(false) }
+    val permissionPicker = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
+        if (uri != null) scope.launch {
+            if (uri != book.folderUri) {
+                error = "Choose this book’s original books folder to allow changes."
+            } else try {
+                model.allowFolderChanges(uri)
+                error = "Folder access updated. Tap Save to try again."
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "Cannot allow changes to this folder." }
+        }
+    }
+    AlertDialog(onDismissRequest = { if (!saving) onDismiss() }, title = { Text("Edit book") },
+        text = {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(stem, { value -> stem = if (value.endsWith(".epub", true)) value.dropLast(5) else value },
+                    label = { Text("Filename") }, suffix = { Text(book.filename.takeLast(5)) },
+                    singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(title, { title = it }, label = { Text("Book title") },
+                    singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(author, { author = it }, label = { Text("Author") },
+                    singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth())
+                Text("Title and author are saved into the EPUB. The filename is shown in the library only when both are empty.",
+                    style = MaterialTheme.typography.bodySmall)
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                    if (needsAccess) FilledTonalButton(onClick = { permissionPicker.launch(book.folderUri) }, enabled = !saving) {
+                        Text("Allow folder changes")
+                    }
+                }
+                if (saving) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(enabled = !saving && stem.isNotBlank(), onClick = {
+                saving = true; error = null; needsAccess = false
+                scope.launch {
+                    try { model.saveDetails(book, stem, title, author); onDismiss() }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: SecurityException) { needsAccess = true; error = "Allow changes to this books folder, then tap Save again." }
+                    catch (e: Exception) {
+                        needsAccess = e is java.io.IOException || generateSequence<Throwable>(e) { it.cause }.any { it is SecurityException }
+                        error = e.message ?: "Cannot save this EPUB. Your changes are still here."
+                    }
+                    finally { saving = false }
+                }
+            }) { Text(if (saving) "Saving…" else "Save") }
+        },
+        dismissButton = { FilledTonalButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } })
 }
 
 @Composable

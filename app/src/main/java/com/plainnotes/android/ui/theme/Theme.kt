@@ -108,14 +108,7 @@ private val LocalChromeColors = staticCompositionLocalOf {
     )
 }
 
-@Composable
-fun PlainNotesTheme(
-    themeMode: ThemeMode,
-    fontScale: Float,
-    content: @Composable () -> Unit,
-) {
-    val typography = scaledTypography(fontScale)
-    val colorScheme = when (themeMode) {
+fun plainNotesColorScheme(themeMode: ThemeMode): androidx.compose.material3.ColorScheme = when (themeMode) {
         ThemeMode.SNOW -> lightColorScheme(primary = Color(0xFF315DA8), background = Color.White, surface = Color.White)
         ThemeMode.ROSE -> lightColorScheme(primary = Color(0xFF98455E), background = Color(0xFFFFF4F5), surface = Color(0xFFFFF4F5))
         ThemeMode.LAVENDER -> lightColorScheme(primary = Color(0xFF66509B), background = Color(0xFFF6F2FF), surface = Color(0xFFF6F2FF))
@@ -127,6 +120,15 @@ fun PlainNotesTheme(
         ThemeMode.DARK_2 -> DarkColors2
         ThemeMode.DARK_3 -> DarkColors3
     }
+
+@Composable
+fun PlainNotesTheme(
+    themeMode: ThemeMode,
+    fontScale: Float,
+    content: @Composable () -> Unit,
+) {
+    val typography = scaledTypography(fontScale)
+    val colorScheme = plainNotesColorScheme(themeMode)
     val chromeColors = when (themeMode) {
         ThemeMode.SNOW, ThemeMode.ROSE, ThemeMode.LAVENDER, ThemeMode.AMOLED -> PlainNotesChromeColors(colorScheme.surface, colorScheme.onSurface)
         ThemeMode.LIGHT -> PlainNotesChromeColors(

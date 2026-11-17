@@ -13,6 +13,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.unit.em
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.focus.FocusRequester
@@ -357,18 +363,6 @@ fun TodoScreen(
                                             val color = if (done) completedText
                                                 else flagColors?.content ?: MaterialTheme.colorScheme.onSurface
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                if (item.repeatOnComplete && !done) {
-                                                    IconButton(onClick = {
-                                                        if (completionPending) { revealedId = null; checkboxConfirmId = null }
-                                                        else { revealedId = null; checkboxConfirmId = item.id }
-                                                    }, modifier = Modifier.semantics {
-                                                        stateDescription = if (completionPending) "Awaiting confirmation" else "Repeats after completion"
-                                                    }) {
-                                                        Icon(if (completionPending) Icons.Rounded.Check else Icons.Rounded.Repeat,
-                                                            if (completionPending) "Cancel completion: ${item.title}" else "Complete repeating task: ${item.title}",
-                                                            tint = if (completionPending) MaterialTheme.colorScheme.primary.copy(alpha = 0.65f) else color)
-                                                    }
-                                                } else {
                                                 Checkbox(
                                                     checked = done || completionPending,
                                                     onCheckedChange = {
@@ -394,12 +388,17 @@ fun TodoScreen(
                                                         }
                                                     },
                                                 )
-                                                }
                                             Text(
                                                 modifier = Modifier.weight(1f),
-                                                text = listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "),
-                                                style = MaterialTheme.typography.titleMedium,
-                                                color = color,
+                                                text = buildAnnotatedString {
+                                                    append(listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "))
+                                                    if (item.repeatOnComplete) appendInlineContent("repeat", " ↻")
+                                                },
+                                                inlineContent = mapOf("repeat" to InlineTextContent(
+                                                    Placeholder(1.5.em, 1.em, PlaceholderVerticalAlign.TextCenter)) {
+                                                        Icon(Icons.Rounded.Repeat, "Repeating task", Modifier.fillMaxSize().padding(start = 4.dp), tint = color)
+                                                    }),
+                                                style = MaterialTheme.typography.titleMedium, color = color,
                                             )
 
                                                 IconButton(onClick = { menuId = row.key }) { Icon(Icons.Rounded.MoreVert, "Task actions") }
@@ -561,12 +560,6 @@ private fun TodoEditDialog(
                     // Draw the opaque boundary after the scrolling text; no outline can peek above it.
                     HorizontalDivider(Modifier.align(Alignment.BottomCenter), thickness = 2.dp, color = MaterialTheme.colorScheme.primary)
                 }
-                if (original?.completedAt == null) Row(Modifier.fillMaxWidth().toggleable(repeat, enabled = !saving,
-                    role = Role.Checkbox) { repeat = it }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(repeat, onCheckedChange = null, enabled = !saving)
-                    Icon(Icons.Rounded.Repeat, null, Modifier.size(20.dp))
-                    Text("Repeat after completion", Modifier.padding(start = 8.dp))
-                }
                 if (error) Text("Could not save. Your text is still here; try again.", color = MaterialTheme.colorScheme.error)
                 Column {
                     TodoFlag.entries.forEach { flag ->
@@ -580,6 +573,12 @@ private fun TodoEditDialog(
                             Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}", Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                         }
                     }
+                }
+                if (original?.completedAt == null) Row(Modifier.fillMaxWidth().toggleable(repeat, enabled = !saving,
+                    role = Role.Checkbox) { repeat = it }, verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(repeat, onCheckedChange = null, enabled = !saving)
+                    Icon(Icons.Rounded.Repeat, null, Modifier.size(20.dp))
+                    Text("Repeat after completion", Modifier.padding(start = 8.dp))
                 }
             }
         },

@@ -24,21 +24,30 @@ internal fun SettingsSection(title: String, content: @Composable ColumnScope.() 
 
 @Composable
 internal fun SettingsChoice(label: String, options: List<Pair<String, Boolean>>, onSelected: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Box {
-            FilledTonalButton(onClick = { expanded = true }, shape = RoundedCornerShape(50),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-                Text((options.firstOrNull { it.second }?.first ?: "Choose") + " ▾")
-            }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { (name, selected) ->
-                    DropdownMenuItem(text = { Text(name + if (selected) " ✓" else "") },
-                        onClick = { expanded = false; onSelected(name) })
-                }
-            }
+    Text(label, style = MaterialTheme.typography.bodyMedium)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        options.forEach { (name, selected) ->
+            FilterChip(selected = selected, onClick = { onSelected(name) }, label = { Text(name) })
+        }
+    }
+}
+
+@Composable
+internal fun ThemeChoices(selected: ThemeMode, onSelected: (ThemeMode) -> Unit) {
+    Text("Theme", style = MaterialTheme.typography.bodyMedium)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        ThemeMode.entries.forEach { theme ->
+            val palette = com.plainnotes.android.ui.theme.plainNotesColorScheme(theme)
+            FilterChip(selected = selected == theme, onClick = { onSelected(theme) },
+                leadingIcon = {
+                    Surface(shape = RoundedCornerShape(50), color = palette.background,
+                        border = BorderStroke(1.dp, palette.onSurface.copy(alpha = 0.4f))) {
+                        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Surface(Modifier.size(10.dp), shape = RoundedCornerShape(50), color = palette.primary) {}
+                            Surface(Modifier.size(10.dp), shape = RoundedCornerShape(50), color = palette.onSurface) {}
+                        }
+                    }
+                }, label = { Text(theme.label) })
         }
     }
 }

@@ -488,13 +488,13 @@ function App() {
                 : setCompletion(p.id)
             }
           >
-            {p.completed_at || completion === p.id ? "✓" : p.repeat_on_complete ? "↻" : ""}
+            {p.completed_at || completion === p.id ? "✓" : ""}
           </button>
           <button className="task-title" onClick={() => void openEntry(e)}>
             <strong>
               {p.flags.map((f) => symbols[f]).join(" ") ||
                 (p.flagged ? "⚑" : "")}{" "}
-              {p.title || "Untitled task"}
+              {p.title || "Untitled task"}{p.repeat_on_complete && <span aria-label="Repeating task" className="repeat-symbol"> ↻</span>}
             </strong>
             {p.description && <span>{p.description}</span>}
           </button>
@@ -1100,8 +1100,6 @@ function App() {
                         }
                       />
                       <div className="flags">
-                        {!draft.completed_at && <label><input type="checkbox" checked={!!draft.repeat_on_complete}
-                          onChange={() => edit({...draft, repeat_on_complete: !draft.repeat_on_complete})} />↻ Repeat after completion</label>}
                         {Object.entries(symbols).map(([f, icon]) => (
                           <label key={f}>
                             <input
@@ -1120,6 +1118,8 @@ function App() {
                             {icon} {f.replace("_", " ")}
                           </label>
                         ))}
+                        {!draft.completed_at && <label><input type="checkbox" checked={!!draft.repeat_on_complete}
+                          onChange={() => edit({...draft, repeat_on_complete: !draft.repeat_on_complete})} />↻ Repeat after completion</label>}
                       </div>
                     </>
                   ) : (

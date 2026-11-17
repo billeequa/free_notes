@@ -336,7 +336,7 @@ header .eyebrow {
   font-weight: 550;
   overflow-wrap: anywhere;
 }
-.task-title span {
+.task-title > span {
   display: block;
   font-size: 0.85rem;
   opacity: 0.65;
@@ -842,3 +842,5 @@ select:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
 .has-workspace-switch .main { padding-bottom: 6.5rem; }
 .work-option { display: flex; align-items: center; gap: 0.7rem; }
 .work-option input { width: auto; margin: 0; }
+
+.task-title .repeat-symbol { white-space: nowrap; }

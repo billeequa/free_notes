@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal data class ReaderLibraryState(
     val books: List<BookEntry> = emptyList(),
@@ -61,6 +62,16 @@ internal class ReaderLibraryViewModel(application: Application) : AndroidViewMod
                 }
             }
         }
+    }
+
+    suspend fun saveDetails(book: BookEntry, stem: String, title: String, author: String) {
+        withContext(Dispatchers.IO) { library.saveDetails(book, stem, title, author) }
+        _state.update { it.copy(loaded = false, loading = true) }
+        load(force = true)
+    }
+
+    suspend fun allowFolderChanges(uri: Uri) {
+        withContext(Dispatchers.IO) { library.addFolder(uri) }
     }
 
     fun addFolder(uri: Uri) {

@@ -78,6 +78,8 @@ class EpubReaderActivity : FragmentActivity() {
         var error by mutableStateOf<String?>(null)
         var theme by mutableStateOf(ThemeMode.DARK_1)
         var fontScale by mutableFloatStateOf(1f)
+        var readerFontScale by mutableFloatStateOf(1f)
+        var fontSettings by mutableStateOf(false)
         var controls by mutableStateOf(false)
         var toc by mutableStateOf(false)
         var progress by mutableDoubleStateOf(0.0)
@@ -89,6 +91,7 @@ class EpubReaderActivity : FragmentActivity() {
 
         lifecycleScope.launch { settings.themeMode.collectLatest { theme = ThemeMode.fromStorage(it) } }
         lifecycleScope.launch { settings.fontScale.collectLatest { fontScale = it } }
+        lifecycleScope.launch { settings.readerFontScale.collectLatest { readerFontScale = it } }
         lifecycleScope.launch {
             try { publication = library.open(uri) }
             catch (e: Exception) { error = e.message ?: "This EPUB cannot be opened." }
@@ -108,11 +111,11 @@ class EpubReaderActivity : FragmentActivity() {
                     }
                 }
                 val reading = publication
-                LaunchedEffect(reading, theme, fontScale) {
-                    navigator?.submitPreferences(preferences(theme, fontScale, colors.background.toArgb(), colors.onBackground.toArgb()))
+                LaunchedEffect(reading, theme, readerFontScale) {
+                    navigator?.submitPreferences(preferences(theme, readerFontScale, colors.background.toArgb(), colors.onBackground.toArgb()))
                 }
-                LaunchedEffect(controls, controlInteraction, toc, scrubbing) {
-                    if (controls && !toc && !scrubbing) {
+                LaunchedEffect(controls, controlInteraction, toc, scrubbing, fontSettings) {
+                    if (controls && !toc && !scrubbing && !fontSettings) {
                         delay(5_000)
                         controls = false
                     }
@@ -144,7 +147,7 @@ class EpubReaderActivity : FragmentActivity() {
                                             initialLocator = initial,
                                             // Compose already applies safe drawing insets; do not pad the cutout twice.
                                             configuration = EpubNavigatorFragment.Configuration(shouldApplyInsetsPadding = false),
-                                            initialPreferences = preferences(theme, fontScale, colors.background.toArgb(), colors.onBackground.toArgb()),
+                                            initialPreferences = preferences(theme, readerFontScale, colors.background.toArgb(), colors.onBackground.toArgb()),
                                             listener = object : EpubNavigatorFragment.Listener {
                                                 override fun onExternalLinkActivated(url: AbsoluteUrl) {
                                                     if (url.isHttp) runCatching {
@@ -198,10 +201,16 @@ class EpubReaderActivity : FragmentActivity() {
                             AnimatedVisibility(visible = controls, enter = fadeIn(), exit = fadeOut(),
                                 modifier = Modifier.align(Alignment.TopCenter)) {
                                 // The bar fills the status-bar area; TopAppBar applies its inset once.
-                                TopAppBar(title = { Text(reading.metadata.title ?: "E Reader", maxLines = 1,
+                                TopAppBar(title = { Text(intent.getStringExtra("book_display_title") ?: reading.metadata.title ?: "E Reader", maxLines = 1,
                                         overflow = TextOverflow.Ellipsis) },
                                     navigationIcon = { IconButton(onClick = ::finish) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library") } },
-                                    actions = { IconButton(onClick = { toc = true; controlInteraction++ }) { Icon(Icons.Rounded.List, "Table of contents") } },
+                                    actions = {
+                                        IconButton(onClick = { fontSettings = true; controlInteraction++ }) {
+                                            Text("Aa", style = MaterialTheme.typography.titleMedium,
+                                                modifier = Modifier.semantics { contentDescription = "Reader font size" })
+                                        }
+                                        IconButton(onClick = { toc = true; controlInteraction++ }) { Icon(Icons.Rounded.List, "Table of contents") }
+                                    },
                                     colors = toolbarColors)
                             }
                             AnimatedVisibility(visible = controls, enter = fadeIn(), exit = fadeOut(),
@@ -246,6 +255,9 @@ class EpubReaderActivity : FragmentActivity() {
                                     }
                                 }
                             }
+                            if (fontSettings) com.plainnotes.android.ui.ReaderFontSizeDialog(onDismiss = {
+                                fontSettings = false; controlInteraction++
+                            })
                             if (toc) AlertDialog(onDismissRequest = { toc = false }, title = { Text("Contents") },
                                 text = { androidx.compose.foundation.lazy.LazyColumn {
                                     val chapters = chapters(reading.tableOfContents)
