@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import com.plainnotes.android.BuildConfig
@@ -59,7 +62,13 @@ fun UpdateSettings() {
             release = latest
             message = "Available: ${latest.label}"
         } else message = "You're up to date."
-    } }) { Text(if (busy) "Working…" else "Check for updates") }
+    } }) {
+        Box(contentAlignment = Alignment.Center) {
+            Text("Check for updates", modifier = if (busy) Modifier.clearAndSetSemantics {} else Modifier,
+                color = if (busy) Color.Transparent else Color.Unspecified)
+            if (busy) Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) { Text("Working…") }
+        }
+    }
     }
     release?.let { available ->
         Button(enabled = !busy, onClick = { perform {

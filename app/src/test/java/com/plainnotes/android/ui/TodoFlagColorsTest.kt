@@ -12,10 +12,11 @@ class TodoFlagColorsTest {
     @Test fun combinationsHaveDistinctReadableColorsInLightAndDarkThemes() {
         for (dark in listOf(false, true)) {
             assertNull(todoFlagColors(emptySet(), dark))
-            val colors = (1..7).map { mask ->
-                todoFlagColors(TodoFlag.entries.filter { mask and it.bit != 0 }.toSet(), dark)!!
+            val colors = (1..15).map { mask ->
+                val flags = TodoFlag.entries.filter { mask and it.bit != 0 }.toSet()
+                todoFlagColors(flags, dark, repeating = mask and 8 != 0)!!
             }
-            assertEquals(7, colors.map { it.container }.distinct().size)
+            assertEquals(15, colors.map { it.container }.distinct().size)
             for (palette in colors) {
                 assertTrue("Open text must meet 4.5:1 contrast", contrast(palette.container, palette.content) >= 4.5f)
                 assertTrue("Completed text must meet 4.5:1 contrast", contrast(palette.container, palette.completedContent) >= 4.5f)
