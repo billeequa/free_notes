@@ -2,7 +2,7 @@
 
 Jnotes is a small, ad-free Android notes app built around ordinary UTF-8 text files. Local use needs no account or cloud service. The user chooses a folder, and that folder remains the source of truth. Optional encrypted Web Sync is in development; analytics and advertising SDKs are not included.
 
-The current release is **1.8.0**, adding EPUB filename and metadata editing, independent reader font sizes, visible theme choices, and clearer repeat and Settings controls. See [release notes](releases/NOTES.md) and [update/signing setup](docs/UPDATES.md).
+**1.8.1** adds green repeat badges and task tints, full-button theme previews, and app and reader font-size samples. See [release notes](releases/NOTES.md) and [update/signing setup](docs/UPDATES.md).
 
 ## Features
 

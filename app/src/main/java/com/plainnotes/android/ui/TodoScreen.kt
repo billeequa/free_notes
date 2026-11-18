@@ -282,7 +282,8 @@ fun TodoScreen(
                         is TodoListRow.Task -> {
                             val item = row.item
                             val done = item.completedAt != null
-                            val flagColors = todoFlagColors(item.flags, MaterialTheme.colorScheme.surface.luminance() < 0.5f)
+                            val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                            val flagColors = todoFlagColors(item.flags, dark, item.repeatOnComplete)
                             val revealed = revealedId == item.id && !done
                             val checkboxPending = checkboxConfirmId == item.id && !done
                             val completionPending = revealed || checkboxPending
@@ -388,18 +389,37 @@ fun TodoScreen(
                                                         }
                                                     },
                                                 )
-                                            Text(
-                                                modifier = Modifier.weight(1f),
-                                                text = buildAnnotatedString {
-                                                    append(listOf(item.flagSymbols, item.title).filter { it.isNotEmpty() }.joinToString(" "))
-                                                    if (item.repeatOnComplete) appendInlineContent("repeat", " ↻")
-                                                },
-                                                inlineContent = mapOf("repeat" to InlineTextContent(
-                                                    Placeholder(1.5.em, 1.em, PlaceholderVerticalAlign.TextCenter)) {
-                                                        Icon(Icons.Rounded.Repeat, "Repeating task", Modifier.fillMaxSize().padding(start = 4.dp), tint = color)
+                                                Text(
+                                                    modifier = Modifier.weight(1f),
+                                                    text = buildAnnotatedString {
+                                                        val flags = item.flagSymbols
+                                                        if (flags.isNotEmpty()) {
+                                                            append(flags)
+                                                            append(' ')
+                                                        }
+                                                        if (item.repeatOnComplete) {
+                                                            appendInlineContent("repeat", "Repeating task")
+                                                            append('\u00A0')
+                                                        }
+                                                        append(item.title)
+                                                    },
+                                                    inlineContent = mapOf("repeat" to InlineTextContent(
+                                                        Placeholder(1.125.em, 1.125.em, PlaceholderVerticalAlign.TextCenter),
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Rounded.Repeat,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.fillMaxSize()
+                                                                .background(
+                                                                    if (dark) Color(0xFF9DD8A7) else Color(0xFF76B987),
+                                                                    RoundedCornerShape(4.dp),
+                                                                )
+                                                                .padding(2.dp),
+                                                            tint = Color(0xFF173A23),
+                                                        )
                                                     }),
-                                                style = MaterialTheme.typography.titleMedium, color = color,
-                                            )
+                                                    style = MaterialTheme.typography.titleMedium, color = color,
+                                                )
 
                                                 IconButton(onClick = { menuId = row.key }) { Icon(Icons.Rounded.MoreVert, "Task actions") }
                                             }
@@ -573,12 +593,13 @@ private fun TodoEditDialog(
                             Text("Mark ${if (flag == TodoFlag.LONG_TERM) "as " else ""}${flag.label} ${flag.emoji}", Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                         }
                     }
-                }
-                if (original?.completedAt == null) Row(Modifier.fillMaxWidth().toggleable(repeat, enabled = !saving,
-                    role = Role.Checkbox) { repeat = it }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(repeat, onCheckedChange = null, enabled = !saving)
-                    Icon(Icons.Rounded.Repeat, null, Modifier.size(20.dp))
-                    Text("Repeat after completion", Modifier.padding(start = 8.dp))
+                    if (original?.completedAt == null) Row(
+                        Modifier.fillMaxWidth().toggleable(repeat, enabled = !saving, role = Role.Checkbox) { repeat = it },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(repeat, onCheckedChange = null, enabled = !saving)
+                        Text("Repeat after completion 🔁", Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                    }
                 }
             }
         },

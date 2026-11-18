@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
@@ -108,7 +109,7 @@ private val LocalChromeColors = staticCompositionLocalOf {
     )
 }
 
-fun plainNotesColorScheme(themeMode: ThemeMode): androidx.compose.material3.ColorScheme = when (themeMode) {
+fun plainNotesColorScheme(themeMode: ThemeMode): ColorScheme = when (themeMode) {
         ThemeMode.SNOW -> lightColorScheme(primary = Color(0xFF315DA8), background = Color.White, surface = Color.White)
         ThemeMode.ROSE -> lightColorScheme(primary = Color(0xFF98455E), background = Color(0xFFFFF4F5), surface = Color(0xFFFFF4F5))
         ThemeMode.LAVENDER -> lightColorScheme(primary = Color(0xFF66509B), background = Color(0xFFF6F2FF), surface = Color(0xFFF6F2FF))
@@ -121,15 +122,8 @@ fun plainNotesColorScheme(themeMode: ThemeMode): androidx.compose.material3.Colo
         ThemeMode.DARK_3 -> DarkColors3
     }
 
-@Composable
-fun PlainNotesTheme(
-    themeMode: ThemeMode,
-    fontScale: Float,
-    content: @Composable () -> Unit,
-) {
-    val typography = scaledTypography(fontScale)
-    val colorScheme = plainNotesColorScheme(themeMode)
-    val chromeColors = when (themeMode) {
+internal fun plainNotesChromeColors(themeMode: ThemeMode, colorScheme: ColorScheme): PlainNotesChromeColors =
+    when (themeMode) {
         ThemeMode.SNOW, ThemeMode.ROSE, ThemeMode.LAVENDER, ThemeMode.AMOLED -> PlainNotesChromeColors(colorScheme.surface, colorScheme.onSurface)
         ThemeMode.LIGHT -> PlainNotesChromeColors(
             topAppBarContainer = LightColors.surface,
@@ -157,6 +151,15 @@ fun PlainNotesTheme(
         )
     }
 
+@Composable
+fun PlainNotesTheme(
+    themeMode: ThemeMode,
+    fontScale: Float,
+    content: @Composable () -> Unit,
+) {
+    val typography = scaledTypography(fontScale)
+    val colorScheme = plainNotesColorScheme(themeMode)
+    val chromeColors = plainNotesChromeColors(themeMode, colorScheme)
     val window = LocalContext.current.findActivity()?.window
     SideEffect {
         window?.let {

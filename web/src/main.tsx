@@ -470,7 +470,7 @@ function App() {
     const p = e.payload;
     const mask = p.flags.reduce(
       (n, f) => n | ({ urgent: 1, important: 2, long_term: 4 }[f] || 0),
-      0,
+      p.repeat_on_complete ? 8 : 0,
     );
     return (
       <article
@@ -494,7 +494,15 @@ function App() {
             <strong>
               {p.flags.map((f) => symbols[f]).join(" ") ||
                 (p.flagged ? "⚑" : "")}{" "}
-              {p.title || "Untitled task"}{p.repeat_on_complete && <span aria-label="Repeating task" className="repeat-symbol"> ↻</span>}
+              {p.repeat_on_complete && <>
+                <span role="img" aria-label="Repeating task" className="repeat-badge">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+                    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 11V6h13m-4-4 4 4-4 4M18 13v5H5m4-4-4 4 4 4" />
+                  </svg>
+                </span>{"\u00a0"}
+              </>}
+              {p.title || "Untitled task"}
             </strong>
             {p.description && <span>{p.description}</span>}
           </button>
@@ -886,14 +894,14 @@ function App() {
         {tab === "settings" ? (
           <section className="settings panel">
             <h2>Themes</h2>
-            <label>
-              Website theme
-              <select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
-                {Object.entries(themes).map(([id, label]) => (
-                  <option key={id} value={id}>{label}</option>
-                ))}
-              </select>
-            </label>
+            <div className="theme-choices" role="group" aria-label="Website theme">
+              {(Object.entries(themes) as [Theme, string][]).map(([id, label]) => (
+                <button key={id} type="button" className="theme-choice" data-theme={id}
+                  aria-pressed={theme === id} onClick={() => setTheme(id)}>
+                  <span aria-hidden="true">✓</span>{label}
+                </button>
+              ))}
+            </div>
             {!workOnly && <><h2>Work mode</h2>
             <label className="work-option"><input type="checkbox" checked={workEnabled} onChange={(e) => enableWork(e.target.checked)} />Show the Work / Personal mode switch</label></>}
             <p>Work has separate notes, tasks, trash and history. Bookmark <a href="/work">j4notes.pages.dev/work</a> for work-only access. Switching modes requires a fresh sign-in.</p>
@@ -1119,7 +1127,7 @@ function App() {
                           </label>
                         ))}
                         {!draft.completed_at && <label><input type="checkbox" checked={!!draft.repeat_on_complete}
-                          onChange={() => edit({...draft, repeat_on_complete: !draft.repeat_on_complete})} />↻ Repeat after completion</label>}
+                          onChange={() => edit({...draft, repeat_on_complete: !draft.repeat_on_complete})} />🔁 Repeat after completion</label>}
                       </div>
                     </>
                   ) : (

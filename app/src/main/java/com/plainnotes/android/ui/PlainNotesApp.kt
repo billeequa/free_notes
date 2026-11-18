@@ -780,9 +780,9 @@ private fun SettingsScreen(
             Spacer(Modifier.height(2.dp))
             SettingsSection("Appearance") {
                 ThemeChoices(themeMode, onThemeSelected)
-                SettingsChoice("Font size", fontSizes.map { it.first to (fontScale == it.second) }) { label ->
-                    onFontScaleSelected(fontSizes.first { it.first == label }.second)
-                }
+                FontSizeChoices("Font size", fontSizes, fontScale,
+                    previewBaseSize = MaterialTheme.typography.bodyMedium.fontSize / fontScale,
+                    onSelected = onFontScaleSelected)
             }
             SettingsSection("Updates") { UpdateSettings() }
             SettingsSection("Sync & website") {
@@ -1421,9 +1421,9 @@ private fun PatchNotesPopup() {
         onDismissRequest = { dismiss() },
         title = { Text("What's new in ${com.plainnotes.android.BuildConfig.VERSION_NAME}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Long-press a book to rename its file or edit its title and author. The .epub extension stays fixed; book metadata takes priority in the library.")
-            Text("Reader text has its own font size. Tap the page, then Aa, or choose a size in Settings. Repeating tasks use the standard checkbox, with the repeat symbol after the name and Repeat last in the optional tags.")
-            Text("Settings shows theme previews and font choices. Check for updates sits beside the current version; books folders are in Storage, and the website address appears beside Open website.")
+            Text("Repeating tasks have a green badge before the title. Their card color reflects the repeat setting and any other tags. Edit a task to find 🔁 below its description.")
+            Text("Each theme button previews its colors across the whole button. App and reader font choices show Aa samples at each size.")
+            Text("Check for updates stays the same size while it runs.")
         } },
         confirmButton = { TextButton(onClick = { dismiss() }) { Text("Got it") } },
     )
